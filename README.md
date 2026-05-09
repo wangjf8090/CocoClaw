@@ -1,2 +1,2 @@
 # CocoClaw
-work everywhere
+CocoClaw works everywhere.
