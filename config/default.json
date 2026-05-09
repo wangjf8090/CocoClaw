@@ -1,0 +1,19 @@
+{
+  "gateway": {
+    "port": 18789,
+    "host": "127.0.0.1",
+    "heartbeatInterval": 30000,
+    "maxSessionSize": 1000
+  },
+  "queryEngine": {
+    "maxIterations": 10,
+    "maxTokens": 4096,
+    "temperature": 0.7,
+    "stream": true
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-3.5-turbo",
+    "baseUrl": "https://api.openai.com/v1"
+  }
+}

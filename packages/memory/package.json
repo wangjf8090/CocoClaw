@@ -1,0 +1,29 @@
+{
+  "name": "@selfclaw/memory",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "node --test dist/**/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "lunr": "^2.3.9",
+    "graphology": "^0.25.4",
+    "graphology-metrics": "^2.2.0",
+    "graphology-operators": "^1.6.0",
+    "uuid": "^9.0.1",
+    "eventemitter3": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/lunr": "^2.3.7",
+    "@types/uuid": "^9.0.8",
+    "tsx": "^4.7.0"
+  }
+}

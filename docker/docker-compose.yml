@@ -1,0 +1,346 @@
+version: '3.8'
+
+services:
+  # Gateway Service - WebSocket and HTTP API Gateway
+  gateway:
+    build:
+      context: ../
+      dockerfile: docker/gateway.Dockerfile
+    container_name: selfclaw-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+      - "${GATEWAY_SECURE_PORT:-8443}:8443"
+      - "${WEBSOCKET_PORT:-9000}:9000"
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_CONNECTIONS=${MAX_CONNECTIONS:-10000}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-30000}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - redis
+      - postgres
+      - query-engine
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Query Engine - LLM Streaming and Processing
+  query-engine:
+    build:
+      context: ../
+      dockerfile: docker/query-engine.Dockerfile
+    container_name: selfclaw-query-engine
+    ports:
+      - "${QUERY_ENGINE_PORT:-8081}:8081"
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_STREAMING_SESSIONS=${MAX_STREAMING_SESSIONS:-1000}
+      - STREAMING_TIMEOUT=${STREAMING_TIMEOUT:-300000}
+      - TOKEN_BUFFER_SIZE=${TOKEN_BUFFER_SIZE:-4096}
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Memory System - Vector Database and CRUD Operations
+  memory-system:
+    build:
+      context: ../
+      dockerfile: docker/memory-system.Dockerfile
+    container_name: selfclaw-memory-system
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DB_HOST=${MEMORY_DB_HOST:-postgres}
+      - DB_PORT=${MEMORY_DB_PORT:-5432}
+      - DB_NAME=${MEMORY_DB_NAME:-selfclaw_memory}
+      - DB_USER=${MEMORY_DB_USER:-selfclaw}
+      - DB_PASSWORD=${MEMORY_DB_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Permission System - RBAC and Access Control
+  permission-system:
+    build:
+      context: ../
+      dockerfile: docker/permission-system.Dockerfile
+    container_name: selfclaw-permission-system
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - JWT_SECRET=${JWT_SECRET}
+      - RBAC_ENABLED=${RBAC_ENABLED:-true}
+      - PERMISSION_CACHE_TTL=${PERMISSION_CACHE_TTL:-300}
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Self-Evolution Harness - Autonomous Improvement Loop
+  evolution-harness:
+    build:
+      context: ../
+      dockerfile: docker/evolution-harness.Dockerfile
+    container_name: selfclaw-evolution-harness
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - HARNESS_ENABLED=${HARNESS_ENABLED:-true}
+      - EVOLUTION_INTERVAL=${EVOLUTION_INTERVAL:-3600000}
+      - MAX_EVOLUTION_STEPS=${MAX_EVOLUTION_STEPS:-100}
+      - AUTO_PROMOTE_THRESHOLD=${AUTO_PROMOTE_THRESHOLD:-0.85}
+      - SAFETY_BOUNDARY_ENABLED=${SAFETY_BOUNDARY_ENABLED:-true}
+    depends_on:
+      - redis
+      - postgres
+      - query-engine
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # SOUL Module - Personality and Emotional Processing
+  soul-module:
+    build:
+      context: ../
+      dockerfile: docker/soul-module.Dockerfile
+    container_name: selfclaw-soul-module
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SOUL_ENABLED=${SOUL_ENABLED:-true}
+      - PERSONALITY_PROFILES_PATH=${PERSONALITY_PROFILES_PATH:-/config/personalities}
+      - EMOTION_DECAY_RATE=${EMOTION_DECAY_RATE:-0.1}
+      - MEMORY_RETENTION_FACTOR=${MEMORY_RETENTION_FACTOR:-0.7}
+    depends_on:
+      - redis
+      - postgres
+      - memory-system
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Web UI - Admin Dashboard and User Interface
+  web-ui:
+    build:
+      context: ../
+      dockerfile: docker/web-ui.Dockerfile
+    container_name: selfclaw-web-ui
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - NODE_ENV=${ENVIRONMENT:-production}
+      - API_BASE_URL=http://gateway:8080
+    depends_on:
+      - gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: selfclaw-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-selfclaw}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-selfclaw}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfclaw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: selfclaw-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-change_me_in_production} --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: selfclaw-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: selfclaw-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+# Volumes
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# Networks
+networks:
+  selfclaw-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
