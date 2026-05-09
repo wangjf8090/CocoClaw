@@ -1,2 +1,2 @@
 # CocoClaw
-Coco
+work everywhere
