@@ -1,0 +1,238 @@
+version: '3.8'
+
+services:
+  # Infrastructure
+  postgres:
+    image: postgres:16-alpine
+    container_name: selfclaw-postgres
+    environment:
+      POSTGRES_DB: selfclaw
+      POSTGRES_USER: selfclaw
+      POSTGRES_PASSWORD: selfclaw123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfclaw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: selfclaw-redis
+    command: redis-server --requirepass redis123 --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: selfclaw-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: selfclaw-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+
+  # Application Services - using node image with volume mount
+  gateway:
+    image: node:20-alpine
+    container_name: selfclaw-gateway
+    working_dir: /app
+    volumes:
+      - ./packages/gateway:/app
+      - ./logs:/app/logs
+    environment:
+      - PORT=8080
+      - WS_PORT=9000
+      - NODE_ENV=production
+    ports:
+      - "8080:8080"
+      - "9001:9001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  query-engine:
+    image: node:20-alpine
+    container_name: selfclaw-query-engine
+    working_dir: /app
+    volumes:
+      - ./packages/query-engine:/app
+    environment:
+      - PORT=8081
+      - NODE_ENV=production
+    ports:
+      - "8081:8081"
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  memory-system:
+    image: node:20-alpine
+    container_name: selfclaw-memory
+    working_dir: /app
+    volumes:
+      - ./packages/memory:/app
+    environment:
+      - PORT=8082
+      - NODE_ENV=production
+    ports:
+      - "8082:8082"
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  permission-system:
+    image: node:20-alpine
+    container_name: selfclaw-permission
+    working_dir: /app
+    volumes:
+      - ./packages/permission:/app
+    environment:
+      - PORT=8083
+      - NODE_ENV=production
+    ports:
+      - "8083:8083"
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  evolution-harness:
+    image: node:20-alpine
+    container_name: selfclaw-evolution
+    working_dir: /app
+    volumes:
+      - ./packages/evolution:/app
+    environment:
+      - PORT=8084
+      - NODE_ENV=production
+    ports:
+      - "8084:8084"
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  soul-module:
+    image: node:20-alpine
+    container_name: selfclaw-soul
+    working_dir: /app
+    volumes:
+      - ./packages/soul:/app
+    environment:
+      - PORT=8085
+      - NODE_ENV=production
+    ports:
+      - "8085:8085"
+    command: sh -c "npm install && node src/index.js"
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web-ui:
+    image: nginx:alpine
+    container_name: selfclaw-web-ui
+    volumes:
+      - ./packages/ui/dist:/usr/share/nginx/html
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+    networks:
+      - selfclaw-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    name: selfclaw_postgres_data
+  redis_data:
+    name: selfclaw_redis_data
+  prometheus_data:
+    name: selfclaw_prometheus_data
+  grafana_data:
+    name: selfclaw_grafana_data
+
+networks:
+  selfclaw-network:
+    name: selfclaw-network
+    driver: bridge

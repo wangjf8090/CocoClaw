@@ -1,0 +1,73 @@
+# Feishu Adapter Docker Compose Configuration (Dual Mode)
+# 
+# Usage examples:
+#   Native mode (recommended for production):
+#     docker-compose -f docker-compose.feishu.yml --profile native up
+#   
+#   CLI mode (for development/testing):
+#     docker-compose -f docker-compose.feishu.yml --profile cli up
+#   
+#   Or use separate files:
+#     docker-compose -f docker-compose.feishu.native.yml up
+#     docker-compose -f docker-compose.feishu.cli.yml up
+
+version: '3.8'
+
+x-common-config: &common-config
+  environment:
+    FEISHU_ENABLED: "true"
+    FEISHU_WEBHOOK_SECRET: "${FEISHU_WEBHOOK_SECRET}"
+  ports:
+    - "8080:8080"
+  networks:
+    - selfclaw-network
+
+services:
+  # Native API Mode (Recommended for Production)
+  selfclaw-gateway-native:
+    <<: *common-config
+    profiles: ["native"]
+    environment:
+      FEISHU_ENABLED: "true"
+      FEISHU_AUTH_MODE: "native"
+      FEISHU_APP_ID: "${FEISHU_APP_ID}"
+      FEISHU_APP_SECRET: "${FEISHU_APP_SECRET}"
+      FEISHU_WEBHOOK_SECRET: "${FEISHU_WEBHOOK_SECRET}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/feishu/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Lark CLI Mode (For Development/Testing)
+  selfclaw-gateway-cli:
+    <<: *common-config
+    profiles: ["cli"]
+    environment:
+      FEISHU_ENABLED: "true"
+      FEISHU_AUTH_MODE: "cli"
+      FEISHU_CLI_PATH: "lark-cli"
+      FEISHU_DEFAULT_IDENTITY: "bot"
+      FEISHU_WEBHOOK_SECRET: "${FEISHU_WEBHOOK_SECRET}"
+      LARK_CLI_CONFIG_PATH: /app/.lark-cli
+    volumes:
+      - lark-cli-config:/app/.lark-cli
+      - /usr/local/lib/node_modules:/usr/local/lib/node_modules:ro
+    command: >
+      sh -c "
+        npm list -g @larksuite/cli || npm install -g @larksuite/cli;
+        exec node /app/packages/gateway/index.js
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/feishu/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  lark-cli-config:
+    driver: local
+
+networks:
+  selfclaw-network:
+    external: true

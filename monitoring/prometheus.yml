@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+    metrics_path: '/metrics'
+
+  - job_name: 'query-engine'
+    static_configs:
+      - targets: ['query-engine:8081']
+    metrics_path: '/metrics'
+
+  - job_name: 'memory-system'
+    static_configs:
+      - targets: ['memory-system:8082']
+    metrics_path: '/metrics'
+
+  - job_name: 'permission-system'
+    static_configs:
+      - targets: ['permission-system:8083']
+    metrics_path: '/metrics'
+
+  - job_name: 'evolution-harness'
+    static_configs:
+      - targets: ['evolution-harness:8084']
+    metrics_path: '/metrics'
+
+  - job_name: 'soul-module'
+    static_configs:
+      - targets: ['soul-module:8085']
+    metrics_path: '/metrics'
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']

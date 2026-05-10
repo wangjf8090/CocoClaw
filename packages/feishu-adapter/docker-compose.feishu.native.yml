@@ -1,0 +1,45 @@
+# Feishu Adapter - Native API Mode (Recommended for Production)
+# Usage: docker-compose -f docker-compose.feishu.native.yml up
+#
+# Benefits:
+# - No need to install lark-cli
+# - Better performance (direct HTTP calls)
+# - Fine-grained error handling
+# - Simpler Docker deployment
+
+version: '3.8'
+
+services:
+  selfclaw-gateway:
+    image: selfclaw/gateway:latest
+    container_name: selfclaw-feishu-native
+    environment:
+      # Feishu Integration - Native Mode
+      FEISHU_ENABLED: "true"
+      FEISHU_AUTH_MODE: "native"
+      FEISHU_APP_ID: "${FEISHU_APP_ID}"
+      FEISHU_APP_SECRET: "${FEISHU_APP_SECRET}"
+      FEISHU_WEBHOOK_SECRET: "${FEISHU_WEBHOOK_SECRET}"
+      
+      # Gateway Configuration
+      NODE_ENV: production
+      GATEWAY_PORT: 8080
+      
+    ports:
+      - "8080:8080"
+      
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/v1/feishu/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+    restart: unless-stopped
+    
+    networks:
+      - selfclaw-network
+
+networks:
+  selfclaw-network:
+    driver: bridge

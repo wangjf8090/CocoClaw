@@ -1,0 +1,36 @@
+{
+  "name": "@selfclaw/feishu-adapter",
+  "version": "2.0.0",
+  "description": "Feishu/Lark dual mode adapter for SelfClaw Gateway (Native API + Lark CLI)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-dual-mode.js",
+    "test:mode": "node test-dual-mode.js"
+  },
+  "keywords": [
+    "selfclaw",
+    "feishu",
+    "lark",
+    "chatbot",
+    "adapter",
+    "openapi",
+    "dual-mode"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "crypto": "^1.0.1",
+    "child_process": "^1.0.2",
+    "https": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@selfclaw/gateway": "^1.0.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./api-client": "./api-client.js",
+    "./sender-factory": "./sender-factory.js",
+    "./sender-openapi": "./sender-openapi.js",
+    "./sender-lark-cli": "./sender-lark-cli.js"
+  }
+}

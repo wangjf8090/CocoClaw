@@ -1,0 +1,16 @@
+{
+  "name": "selfclaw-feishu-bot",
+  "version": "1.0.0",
+  "description": "SelfClaw Feishu Bot - 长连接消息监听服务",
+  "main": "server.js",
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

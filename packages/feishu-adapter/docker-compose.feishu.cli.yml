@@ -1,0 +1,69 @@
+# Feishu Adapter - Lark CLI Mode (For Development/Testing)
+# Usage: docker-compose -f docker-compose.feishu.cli.yml up
+#
+# Benefits:
+# - Easy local development and debugging
+# - Rich CLI tooling
+# - Support for multiple identity switching (user/bot/auto)
+
+version: '3.8'
+
+services:
+  selfclaw-gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: selfclaw-feishu-cli
+    environment:
+      # Feishu Integration - CLI Mode
+      FEISHU_ENABLED: "true"
+      FEISHU_AUTH_MODE: "cli"
+      FEISHU_CLI_PATH: "lark-cli"
+      FEISHU_DEFAULT_IDENTITY: "bot"
+      FEISHU_WEBHOOK_SECRET: "${FEISHU_WEBHOOK_SECRET}"
+      LARK_CLI_CONFIG_PATH: /app/.lark-cli
+      
+      # Gateway Configuration
+      NODE_ENV: development
+      GATEWAY_PORT: 8080
+      
+    volumes:
+      # Mount Lark CLI config for persistent auth
+      - lark-cli-config:/app/.lark-cli
+      
+      # Mount global node modules for lark-cli
+      - /usr/local/lib/node_modules:/usr/local/lib/node_modules:ro
+      
+      # Mount source code for development
+      - ../../:/app:rw
+      
+    ports:
+      - "8080:8080"
+      
+    command: >
+      sh -c "
+        npm list -g @larksuite/cli || npm install -g @larksuite/cli;
+        echo '=== Lark CLI Status ===';
+        lark-cli auth status || echo 'Note: Configure lark-cli with: lark-cli config init && lark-cli auth login';
+        exec npm run dev
+      "
+      
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/v1/feishu/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      
+    restart: unless-stopped
+    
+    networks:
+      - selfclaw-network
+
+volumes:
+  lark-cli-config:
+    driver: local
+
+networks:
+  selfclaw-network:
+    driver: bridge
