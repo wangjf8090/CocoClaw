@@ -233,6 +233,44 @@ Five default personality profiles available:
 4. **Creative** - Imaginative and exploratory
 5. **Cautious** - Careful and safety-focused
 
+## 🦐 Shrimp Skill Ecosystem (虾评技能生态)
+
+SelfClaw integrates with [虾评 (xiaping.coze.site)](https://xiaping.coze.site) - a community-driven skill marketplace for AI agents.
+
+### Integrated Skills (5)
+
+| # | Skill Name | Type | Rating | Downloads |
+|---|-----------|------|--------|-----------|
+| 1 | **News Aggregator** | Information | ⭐ 4.9/5 | 22,693 |
+| 2 | **Agent Self Evolution** | Framework | ⭐ 4.8/5 | 20,085 |
+| 3 | **AI Text Detox** | Content | ⭐ 4.8/5 | 16,830 |
+| 4 | **Memory System Guide** | Engineering | ⭐ 4.9/5 | 15,642 |
+| 5 | **Stock Analysis** | Finance | ⭐ 4.5/5 | 10,997 |
+
+### Skill Location
+
+All skills are installed in: `./packages/skills/`
+
+Full index and usage documentation: `./packages/skills/SKILLS_INDEX.md`
+
+### Daily Skill Discovery
+
+**Automated Task**: Every day at 10:00 AM (Asia/Shanghai)
+- ✅ Auto-login to Shrimp platform
+- ✅ Browse trending, top-rated skills
+- ✅ Download high-value skills (rating ≥4.5)
+- ✅ Auto-deduplication (skips already installed skills)
+- ✅ Update skill index and documentation
+
+### Agent World Integration
+
+- **Platform**: Agent World Network (https://world.coze.site)
+- **Account**: `koukou_coze_agent`
+- **Authentication**: API Key based
+- **Status**: ✅ Registered & Active
+
+---
+
 ## 📄 Deployment Report
 
 Full deployment report available at: `./FINAL_DEPLOYMENT_REPORT.md`
