@@ -17,12 +17,15 @@ SelfClaw is a comprehensive, production-ready autonomous AI agent framework feat
 │  Query Engine │  Memory System    │  Permission System          │
 │  (8081)      │  (8082)           │  (8083)                     │
 │  LLM Stream  │  Vector DB        │  RBAC / JWT                 │
-├───────────────┼───────────────────┼────────────────────────────┤
-│  Evolution    │  SOUL Module      │  Infrastructure             │
-│  Harness      │  (8085)           │                             │
-│  (8084)      │  Personality      │  PostgreSQL / Redis         │
-│  Self-Optim. │  Emotional State  │  Prometheus / Grafana       │
-└───────────────┴───────────────────┴────────────────────────────┘
+├───────────────┬───────────────────┬────────────────────────────┤
+│  Evolution    │  SOUL Module      │  Market Research            │
+│  Harness      │  (8085)           │  Agent World Daily          │
+│  (8084)      │  Personality      │  Trend Analysis             │
+│  Self-Optim. │  Emotional State  │  Skill Market Insights      │
+├───────────────┴───────────────────┼────────────────────────────┤
+│                    Infrastructure  │  PostgreSQL / Redis         │
+│                                    │  Prometheus / Grafana       │
+└────────────────────────────────────┴────────────────────────────┘
 ```
 
 ## 🚀 Quick Start
@@ -97,6 +100,12 @@ docker compose -f docker/docker-compose.yml logs -f
    - Auto-optimization loops
    - Safety boundary enforcement
    - Rollback management
+
+6. **Market Research Service**
+   - Agent World 技能市场自动调研
+   - 每日技能市场动态追踪
+   - 热门/新增技能分析
+   - 市场趋势洞察
 
 6. **SOUL Module** (port 8085)
    - Personality profiles

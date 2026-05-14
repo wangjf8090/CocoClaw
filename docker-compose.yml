@@ -49,10 +49,29 @@ services:
     networks:
       - selfclaw-network
 
+  # Market Research Service - Agent World 技能市场调研
+  market-research:
+    build:
+      context: .
+      dockerfile: docker/market-research.Dockerfile
+    environment:
+      NODE_ENV: production
+      RESEARCH_SCHEDULE: "${RESEARCH_SCHEDULE:-0 9 * * *}"
+      PUSH_ENABLED: "${PUSH_ENABLED:-true}"
+      FEISHU_WEBHOOK: "${FEISHU_WEBHOOK}"
+    volumes:
+      - ./packages:/app/packages:ro
+      - research-data:/app/data
+    restart: unless-stopped
+    networks:
+      - selfclaw-network
+
 volumes:
   lark-cli-config:
     driver: local
   redis-data:
+    driver: local
+  research-data:
     driver: local
 
 networks:
