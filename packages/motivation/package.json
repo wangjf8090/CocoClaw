@@ -1,0 +1,9 @@
+{
+  "name": "@selfclaw/motivation",
+  "version": "1.0.0",
+  "description": "大厂PUA激励引擎 - 当AI偷懒放弃时自动触发",
+  "main": "src/pua-engine.js",
+  "keywords": ["motivation", "debug", "persistence", "pua", "self-improvement"],
+  "author": "SelfClaw Team",
+  "license": "MIT"
+}

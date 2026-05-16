@@ -111,7 +111,37 @@ docker compose -f docker/docker-compose.yml logs -f
    - 💡 技能许愿墙需求追踪
    - 📈 市场趋势洞察分析
 
-6. **SOUL Module** (port 8085)
+7. **Context Relay Service**
+   - 🔄 解决Session重启记忆断裂问题
+   - 📁 文件作为唯一真相源设计
+   - 📋 PROJECT.md - 项目概述与里程碑
+   - 📊 state.json - 状态快照持久化
+   - 📝 decisions.md - 决策日志追踪
+   - ✅ todos.json - 自我待办管理
+   - ❄️ 支持冷启动无缝恢复
+
+8. **Motivation Engine (PUA)**
+   - 💪 大厂风格激励引擎（阿里/字节/华为/腾讯/美团）
+   - 🔍 自动检测放弃/甩锅/偷懒模式
+   - 📈 实测修复效率+36%，隐藏问题发现率+50%
+   - 🛠️ 系统化调试方法论：闻味道、揪头发、照镜子
+   - ⚡ 失败次数递增激励强度
+
+9. **Writing Framework Service**
+   - ✍️ 李诞七步写作框架完整实现
+   - 📝 开场故事 → 错误答案 → 正确答案 → 触类旁通
+   - 💡 对比冲击 → 结尾升华 → 延伸阅读
+   - 🎯 让内容：愿意看、看得懂、愿意信
+   - 📋 写作大纲自动生成 + 合规审核
+
+10. **Compliance Service**
+    - 📜 AI生成内容强制标注（国家网信办新规）
+    - 🏷️ 6类必选标签支持（AIGC/AIGC-PARTIAL/AIGC-EDITED等）
+    - ✅ 4条红线合规检查（主动声明/禁止破坏/重点加倍/留存底稿）
+    - 📊 批量内容合规性扫描与报告生成
+    - 🔗 内容哈希追溯机制
+
+11. **SOUL Module** (port 8085)
    - Personality profiles
    - Emotional state tracking
    - Memory-emotion association
