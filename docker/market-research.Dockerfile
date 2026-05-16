@@ -2,19 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# 安装依赖
-COPY package*.json ./
-COPY packages/market-research/package.json ./packages/market-research/
-COPY packages/shared/package.json ./packages/shared/
-
+# 先复制 package.json 安装依赖
+COPY packages/market-research/package.json ./
 RUN npm install
 
-# 复制代码
-COPY packages/market-research/ ./packages/market-research/
-COPY packages/shared/ ./packages/shared/
+# 然后复制代码
+COPY packages/market-research/ ./
 
 # 复制启动脚本
-COPY scripts/start-market-research.sh ./scripts/
-RUN chmod +x ./scripts/start-market-research.sh
+COPY scripts/start-market-research.sh /app/scripts/
+RUN chmod +x /app/scripts/start-market-research.sh
 
 CMD ["./scripts/start-market-research.sh"]

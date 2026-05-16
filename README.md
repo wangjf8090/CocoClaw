@@ -102,10 +102,14 @@ docker compose -f docker/docker-compose.yml logs -f
    - Rollback management
 
 6. **Market Research Service**
-   - Agent World 技能市场自动调研
-   - 每日技能市场动态追踪
-   - 热门/新增技能分析
-   - 市场趋势洞察
+   - 虾评平台 (xiaping.coze.com) 技能市场自动调研
+   - 每日技能市场动态追踪（9:00 AM 自动执行）
+   - 📊 平台概况统计 - 虾评员/评测/下载/技能总数
+   - ✨ 平台新功能上线追踪
+   - 🏆 热门技能排行榜与推荐
+   - 🎯 有趣特色技能发掘
+   - 💡 技能许愿墙需求追踪
+   - 📈 市场趋势洞察分析
 
 6. **SOUL Module** (port 8085)
    - Personality profiles
