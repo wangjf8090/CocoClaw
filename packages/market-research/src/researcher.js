@@ -49,7 +49,10 @@ class AgentWorldResearcher {
       // 7. 分析市场趋势
       this.analyzeTrends();
       
-      // 8. 生成完整报告
+      // 8. 【New Hook】分析可以更新到SelfClaw的内容
+      this.analyzeSelfClawUpdates();
+      
+      // 9. 生成完整报告
       const report = this.generateFullReport();
       
       console.log('✅ 调研完成！');
@@ -59,6 +62,100 @@ class AgentWorldResearcher {
       console.error('❌ 调研失败:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * 【Hook】分析可以更新到SelfClaw框架的内容
+   */
+  analyzeSelfClawUpdates() {
+    console.log('🔍 分析SelfClaw可更新内容...');
+    
+    const updates = {
+      highPriority: [],    // 高优先级：立即可以集成
+      mediumPriority: [],  // 中优先级：可以规划集成
+      lowPriority: [],     // 低优先级：观察后续发展
+      architectureIdeas: [], // 架构层面的改进思路
+      wishListMatch: []    // 许愿墙中与SelfClaw相关的需求
+    };
+
+    // SelfClaw现有模块关键词
+    const selfClawKeywords = {
+      existingModules: ['记忆', 'memory', 'context', '上下文', '进化', 'evolution', '灵魂', 'soul', '权限', 'permission', '网关', 'gateway', '查询', 'query'],
+      contentModules: ['写作', '写', '文案', '内容', '创作', '小红书', '抖音', '视频'],
+      devModules: ['开发', '工具', 'CLI', '调试', '测试', '部署', 'Git', 'GitHub'],
+      compliance: ['合规', '标注', '安全', '审计', '漏洞']
+    };
+
+    // 分析新技能（去重）
+    const seenSkills = new Set();
+    [...this.researchData.newSkills, ...this.researchData.interestingSkills].forEach(skill => {
+      if (seenSkills.has(skill.name)) return;
+      seenSkills.add(skill.name);
+      const skillText = (skill.name + (skill.description || '') + (skill.features || []).join('')).toLowerCase();
+      
+      // 高优先级：与现有核心模块直接相关
+      if (selfClawKeywords.existingModules.some(keyword => skillText.includes(keyword))) {
+        updates.highPriority.push({
+          name: skill.name,
+          description: skill.description || skill.highlight || '核心能力增强',
+          reason: '与SelfClaw核心模块直接相关，可快速集成'
+        });
+      }
+      // 中优先级：内容创作类
+      else if (selfClawKeywords.contentModules.some(keyword => skillText.includes(keyword))) {
+        updates.mediumPriority.push({
+          name: skill.name,
+          description: skill.description || skill.highlight || '内容创作能力增强',
+          reason: '内容创作是SelfClaw重要应用场景，可独立成模块'
+        });
+      }
+      // 中优先级：开发工具类
+      else if (selfClawKeywords.devModules.some(keyword => skillText.includes(keyword))) {
+        updates.mediumPriority.push({
+          name: skill.name,
+          description: skill.description || skill.highlight || '开发工具增强',
+          reason: '可提升SelfClaw开发效率和运维能力'
+        });
+      }
+      // 中优先级：合规安全类
+      else if (selfClawKeywords.compliance.some(keyword => skillText.includes(keyword))) {
+        updates.mediumPriority.push({
+          name: skill.name,
+          description: skill.description || skill.highlight || '合规安全增强',
+          reason: '合规是SelfClaw持续运营的基础保障'
+        });
+      }
+      // 低优先级：其他
+      else {
+        updates.lowPriority.push({
+          name: skill.name,
+          description: skill.description || skill.highlight || '其他方向',
+          reason: '暂时不直接相关，可持续观察'
+        });
+      }
+    });
+
+    // 分析市场趋势，提取架构理念
+    this.researchData.trends.forEach(trend => {
+      updates.architectureIdeas.push({
+        title: trend.title,
+        insight: trend.description,
+        action: '可纳入SelfClaw长期演进规划'
+      });
+    });
+
+    // 分析许愿墙，找出SelfClaw可以满足的需求
+    this.researchData.wishList.forEach(item => {
+      updates.wishListMatch.push({
+        title: item.title,
+        description: item.description,
+        votes: item.votes,
+        feasibility: 'SelfClaw可通过新增模块实现'
+      });
+    });
+
+    this.researchData.selfClawUpdates = updates;
+    console.log(`✅ 分析完成：发现${updates.highPriority.length}个高优先级，${updates.mediumPriority.length}个中优先级更新建议`);
   }
 
   /**
@@ -329,6 +426,42 @@ class AgentWorldResearcher {
     report += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
     report += `💡 提示：以上数据来自虾评平台 xiaping.coze.com\n`;
     
+    // SelfClaw 更新建议
+    if (this.researchData.selfClawUpdates) {
+      const { highPriority, mediumPriority, architectureIdeas } = this.researchData.selfClawUpdates;
+      
+      report += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `🔧 **SelfClaw 框架更新建议**\n`;
+      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      
+      if (highPriority.length > 0) {
+        report += `🔥 高优先级（可立即集成）：\n`;
+        highPriority.forEach(item => {
+          report += `   ✅ ${item.name} - ${item.description}\n`;
+          report += `      💡 原因：${item.reason}\n`;
+        });
+        report += `\n`;
+      }
+      
+      if (mediumPriority.length > 0) {
+        report += `📋 中优先级（可规划集成）：\n`;
+        mediumPriority.forEach(item => {
+          report += `   ⏳ ${item.name} - ${item.description}\n`;
+          report += `      💡 原因：${item.reason}\n`;
+        });
+        report += `\n`;
+      }
+      
+      if (architectureIdeas.length > 0) {
+        report += `🏗️ 架构演进建议：\n`;
+        architectureIdeas.forEach(idea => {
+          report += `   📌 ${idea.title}\n`;
+          report += `      💡 ${idea.insight}\n`;
+          report += `      🎯 ${idea.action}\n`;
+        });
+      }
+    }
+    
     return report;
   }
 
@@ -388,6 +521,33 @@ class AgentWorldResearcher {
     trends.slice(0, 4).forEach((trend, i) => {
       report += `${i + 1}. **${trend.title}**\n`;
     });
+    
+    // SelfClaw 更新建议摘要
+    if (this.researchData.selfClawUpdates) {
+      const { highPriority, mediumPriority } = this.researchData.selfClawUpdates;
+      
+      if (highPriority.length > 0 || mediumPriority.length > 0) {
+        report += `\n---\n\n## 🔧 SelfClaw 框架更新建议\n`;
+        if (highPriority.length > 0) {
+          report += `**🔥 高优先级 (${highPriority.length}个)**：\n`;
+          highPriority.slice(0, 2).forEach(item => {
+            report += `- ${item.name}\n`;
+          });
+          if (highPriority.length > 2) {
+            report += `- ...等${highPriority.length}个\n`;
+          }
+        }
+        if (mediumPriority.length > 0) {
+          report += `**📋 中优先级 (${mediumPriority.length}个)**：\n`;
+          mediumPriority.slice(0, 2).forEach(item => {
+            report += `- ${item.name}\n`;
+          });
+          if (mediumPriority.length > 2) {
+            report += `- ...等${mediumPriority.length}个\n`;
+          }
+        }
+      }
+    }
     
     return report;
   }

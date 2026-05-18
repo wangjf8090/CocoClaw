@@ -110,6 +110,7 @@ docker compose -f docker/docker-compose.yml logs -f
    - 🎯 有趣特色技能发掘
    - 💡 技能许愿墙需求追踪
    - 📈 市场趋势洞察分析
+   - 🔧 **SelfClaw更新建议Hook** - 每次调研后自动分析可集成到SelfClaw框架的技能和架构理念，按优先级分类输出
 
 7. **Context Relay Service**
    - 🔄 解决Session重启记忆断裂问题
