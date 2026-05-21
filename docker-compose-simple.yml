@@ -120,17 +120,15 @@ services:
       retries: 3
 
   memory-system:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: docker/memory.Dockerfile
     container_name: selfclaw-memory
-    working_dir: /app
-    volumes:
-      - ./packages/memory:/app
     environment:
       - PORT=8082
       - NODE_ENV=production
     ports:
       - "8082:8082"
-    command: sh -c "npm install && node src/index.js"
     networks:
       - selfclaw-network
     restart: unless-stopped
@@ -183,17 +181,15 @@ services:
       retries: 3
 
   soul-module:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: docker/soul.Dockerfile
     container_name: selfclaw-soul
-    working_dir: /app
-    volumes:
-      - ./packages/soul:/app
     environment:
       - PORT=8085
       - NODE_ENV=production
     ports:
       - "8085:8085"
-    command: sh -c "npm install && node src/index.js"
     networks:
       - selfclaw-network
     restart: unless-stopped
