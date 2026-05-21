@@ -96,10 +96,18 @@ docker compose -f docker/docker-compose.yml logs -f
    - Access control enforcement
 
 5. **Evolution Harness** (port 8084)
-   - Performance monitoring
-   - Auto-optimization loops
-   - Safety boundary enforcement
-   - Rollback management
+   - 双环驱动架构：Evolution Circuits + Test Harness
+   - 🔄 **Evolution Circuits**（自动优化）
+     - Permission Evolver - 权限进化器
+     - Performance Evolver - 性能进化器
+     - Memory Evolver - 记忆进化器
+   - 🧪 **Test Harness**（验证驱动）
+     - Case Runner - 批量跑 case
+     - Tool Adapter - prod/mock/replay 三种模式
+     - Evaluator - 五维评分（Outcome/Process/Safety/Reliability/Cost）
+     - Event Bus - 统一事件总线
+   - 📊 Safety Gate / Release Gate
+   - 🔒 Rollback management
 
 6. **Market Research Service**
    - 虾评平台 (xiaping.coze.com) 技能市场自动调研

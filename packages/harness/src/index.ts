@@ -6,6 +6,8 @@
  *
  * Features:
  * - Three evolution circuits: Permission, Performance, Memory
+ * - Test Harness: Case Runner, Tool Adapter, Evaluator
+ * - Event Bus: Unified event stream
  * - A/B testing framework for safe evolution
  * - Rollback mechanism for safety guarantees
  * - Automatic context assembly from memory
@@ -15,10 +17,27 @@
 // Core types
 export * from './types.js';
 
-// Evolvers
+// Evolvers (Evolution Circuits)
 export { PermissionEvolver } from './permission-evolver.js';
 export { PerformanceEvolver } from './performance-evolver.js';
 export { MemoryEvolver } from './memory-evolver.js';
+
+// Event Bus (新增)
+export { EventBus, getEventBus, resetEventBus } from './event-bus.js';
+
+// Test Harness (新增)
+export {
+  CaseRunner,
+  createBuiltinCases,
+  ToolAdapterFactory,
+  ProdToolAdapter,
+  MockToolAdapter,
+  ReplayToolAdapter,
+  FaultInjector,
+  withFaultInjection,
+  Evaluator,
+  SuiteEvaluator,
+} from './test-harness/index.js';
 
 // Main Harness class
 export { SelfEvolutionHarness } from './harness.js';
@@ -48,4 +67,27 @@ export function createSelfEvolutionHarness(
     toolRegistry,
     config
   );
+}
+
+/**
+ * Create a Test Harness setup
+ * 创建测试与治理系统
+ */
+import { EventBus } from './event-bus.js';
+import { CaseRunner, createBuiltinCases } from './test-harness/index.js';
+
+export interface TestHarnessSetup {
+  eventBus: EventBus;
+  caseRunner: CaseRunner;
+}
+
+export function createTestHarness(config?: any): TestHarnessSetup {
+  const eventBus = new EventBus(config?.eventBus);
+  const caseRunner = new CaseRunner(eventBus);
+
+  // 注册内置测试用例
+  const builtinCases = createBuiltinCases();
+  caseRunner.registerCases(builtinCases);
+
+  return { eventBus, caseRunner };
 }
