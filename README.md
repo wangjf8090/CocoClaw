@@ -134,8 +134,19 @@ docker compose -f docker/docker-compose.yml logs -f
    - 💡 对比冲击 → 结尾升华 → 延伸阅读
    - 🎯 让内容：愿意看、看得懂、愿意信
    - 📋 写作大纲自动生成 + 合规审核
+   - 🔗 **Content Deodorizer集成** - 生成后自动去味，让内容更自然
 
-10. **Compliance Service**
+10. **Content Deodorizer Service**
+    - 🧼 AI文本去味器 - 去除AI生成痕迹
+    - 🎭 检测AI味评分（0-100）
+    - ✂️ 替换过度使用的连接词/副词
+    - 📖 修改AI风格开头句式
+    - 🗣️ 增加口语化元素
+    - 🎵 调整段落节奏，打破规整句式
+    - ⚡ 支持light/medium/strong三种强度
+    - 🔗 与Writing Framework联动，生成→审核→去味完整工作流
+
+11. **Compliance Service**
     - 📜 AI生成内容强制标注（国家网信办新规）
     - 🏷️ 6类必选标签支持（AIGC/AIGC-PARTIAL/AIGC-EDITED等）
     - ✅ 4条红线合规检查（主动声明/禁止破坏/重点加倍/留存底稿）

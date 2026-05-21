@@ -254,6 +254,68 @@ class LiDanWritingFramework {
       '结尾要像余音绕梁，让人走了还在想。'
     ];
   }
+
+  /**
+   * 【集成】对文章进行去味处理
+   * 结合Content Deodorizer，去除AI生成痕迹
+   */
+  async deodorize(article, level = 'medium') {
+    console.log('🧼 对文章进行去味处理...');
+    
+    try {
+      // 动态加载去味器
+      const ContentDeodorizer = require('@selfclaw/content-deodorizer');
+      const deodorizer = new ContentDeodorizer();
+      
+      // 执行去味
+      const result = deodorizer.deodorize(article, level);
+      
+      // 生成报告
+      const report = deodorizer.generateReport(article, result.text);
+      
+      return {
+        original: article,
+        deodorized: result.text,
+        report
+      };
+    } catch (err) {
+      // 如果去味器未安装，返回原始内容
+      console.warn('⚠️ Content Deodorizer未安装，跳过去味处理');
+      return {
+        original: article,
+        deodorized: article,
+        report: null
+      };
+    }
+  }
+
+  /**
+   * 【集成】完整写作流程：生成 + 审核 + 去味
+   */
+  async fullWorkflow(topic, contentByStep, options = {}) {
+    console.log(`🚀 启动完整写作工作流：${topic}`);
+    
+    // 1. 生成初稿
+    const draft = await this.generateDraft(topic, contentByStep);
+    
+    // 2. 审核文章
+    const audit = this.auditArticle(draft);
+    
+    let result = {
+      draft,
+      audit,
+      deodorized: draft
+    };
+    
+    // 3. 如果开启去味且审核通过基础分
+    if (options.deodorize && audit.score >= 60) {
+      const deoResult = await this.deodorize(draft, options.deodorizeLevel || 'medium');
+      result.deodorized = deoResult.deodorized;
+      result.deodorizerReport = deoResult.report;
+    }
+    
+    return result;
+  }
 }
 
 module.exports = LiDanWritingFramework;

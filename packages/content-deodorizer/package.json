@@ -1,0 +1,18 @@
+{
+  "name": "@selfclaw/content-deodorizer",
+  "version": "1.0.0",
+  "description": "AI文本去味器 - 去除AI生成痕迹，让内容更自然",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node src/index.js"
+  },
+  "keywords": [
+    "ai",
+    "content",
+    "writing",
+    "deodorizer",
+    "nlp"
+  ],
+  "author": "SelfClaw",
+  "license": "MIT"
+}
