@@ -49,6 +49,33 @@ services:
     networks:
       - selfclaw-network
 
+  # Evolution Harness v2.0 - Skill Audit + Optimize + Lifecycle
+  evolution:
+    build:
+      context: ./packages/evolution
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      NODE_ENV: production
+      PORT: 8084
+      # Skill Audit Config
+      CONTEXT_TOKENS: "${CONTEXT_TOKENS:-272000}"
+      BUDGET_PERCENT: "${BUDGET_PERCENT:-2}"
+      SKILL_ROOTS: "/app/packages/skills"
+      # Memory Service for usage tracking
+      MEMORY_SERVICE_URL: "http://memory:8082"
+    volumes:
+      - ./packages/skills:/app/packages/skills:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - selfclaw-network
+
   # Market Research Service - Agent World 技能市场调研
   market-research:
     build:
