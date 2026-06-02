@@ -1,13 +1,17 @@
 /**
- * SelfClaw Evolution Service v2.0
- * 整合 Skill Audit + Skill Optimize + Skill Lifecycle
+ * SelfClaw Evolution Service v2.1
+ * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  *
  * API 端点：
  * GET  /health                     — 健康检查
  * GET  /api/audit                  — 技能审计报告 (Token预算+重复检测+根目录)
  * GET  /api/audit/budget           — 仅 Token 预算
  * GET  /api/audit/duplicates       — 仅重复检测
+ * GET  /api/compliance             — 行业技能包合规检查 (Coze 3.0)
+ * GET  /api/compliance/:skillName  — 单技能合规详情
  * POST /api/optimize               — 技能描述优化
+ * POST /api/template               — 行业模板生成 (Coze 3.0 可上架)
+ * GET  /api/template/:skillName    — 单技能模板预览
  * GET  /api/lifecycle              — 技能生命周期报告
  * POST /api/evolve                 — 触发进化周期
  * GET  /api/metrics                — 进化指标
@@ -35,6 +39,19 @@ import {
   type LifecycleReport,
   type MemoryServiceConfig,
 } from "./skill-lifecycle.js";
+import {
+  auditAllCompliance,
+  auditSkillCompliance,
+  type ComplianceAuditReport,
+  type SkillComplianceReport,
+} from "./skill-compliance.js";
+import {
+  wrapAllSkillsForMarketplace,
+  wrapSkillForMarketplace,
+  previewSkillMd,
+  type TemplateReport,
+  type TemplateResult,
+} from "./skill-template.js";
 
 // ============================================================================
 // Config
@@ -91,8 +108,8 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "2.0.0",
-    modules: ["skill-audit", "skill-optimize", "skill-lifecycle"],
+    version: "2.1.0",
+    modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template"],
     timestamp: new Date().toISOString(),
   });
 });
@@ -101,7 +118,7 @@ app.get("/health", (_req, res) => {
 app.get("/", (_req, res) => {
   res.json({
     name: "SelfClaw Self-Evolution Harness",
-    version: "2.0.0",
+    version: "2.1.0",
     features: [
       "self-optimization",
       "a-b-testing",
@@ -109,6 +126,8 @@ app.get("/", (_req, res) => {
       "skill-audit",
       "skill-optimize",
       "skill-lifecycle",
+      "skill-compliance",
+      "skill-template",
     ],
     cycles: evolutionMetrics.cycles,
     performanceScore: evolutionMetrics.performanceScore.toFixed(1),
@@ -220,6 +239,87 @@ app.get("/api/lifecycle", async (_req, res) => {
 });
 
 // ============================================================================
+// Skill Compliance API (Coze 3.0 行业技能包合规检查)
+// ============================================================================
+
+/** 批量合规检查 */
+app.get("/api/compliance", (_req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+    const report = auditAllCompliance(enabled);
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: "Compliance audit failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 单技能合规详情 */
+app.get("/api/compliance/:skillName", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const skill = skills.find(
+      (s) => s.name === req.params.skillName || s.baseName === req.params.skillName
+    );
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName: req.params.skillName });
+      return;
+    }
+    const report = auditSkillCompliance(skill);
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: "Compliance check failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ============================================================================
+// Skill Template API (Coze 3.0 行业技能包模板生成)
+// ============================================================================
+
+/** 批量生成行业模板 */
+app.post("/api/template", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+    const outputDir = req.body?.outputDir as string | undefined;
+    const report = wrapAllSkillsForMarketplace(enabled, outputDir);
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: "Template generation failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 单技能模板预览（不写文件） */
+app.get("/api/template/:skillName", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const skill = skills.find(
+      (s) => s.name === req.params.skillName || s.baseName === req.params.skillName
+    );
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName: req.params.skillName });
+      return;
+    }
+    const preview = previewSkillMd(skill);
+    res.json(preview);
+  } catch (error) {
+    res.status(500).json({
+      error: "Template preview failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ============================================================================
 // Legacy Evolution API (保持向后兼容)
 // ============================================================================
 
@@ -287,10 +387,12 @@ app.patch("/api/experiments/:id/complete", (req, res) => {
 // ============================================================================
 
 app.listen(PORT, () => {
-  console.log(`🧬 SelfClaw Evolution Harness v2.0 running on port ${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/health`);
-  console.log(`   Audit:  http://localhost:${PORT}/api/audit`);
-  console.log(`   Budget: http://localhost:${PORT}/api/audit/budget`);
-  console.log(`   Lifecycle: http://localhost:${PORT}/api/lifecycle`);
+  console.log(`🧬 SelfClaw Evolution Harness v2.1 running on port ${PORT}`);
+  console.log(`   Health:     http://localhost:${PORT}/health`);
+  console.log(`   Audit:      http://localhost:${PORT}/api/audit`);
+  console.log(`   Budget:     http://localhost:${PORT}/api/audit/budget`);
+  console.log(`   Compliance: http://localhost:${PORT}/api/compliance`);
+  console.log(`   Template:   http://localhost:${PORT}/api/template`);
+  console.log(`   Lifecycle:  http://localhost:${PORT}/api/lifecycle`);
   console.log(`   Skill roots: ${SKILL_ROOTS.join(", ")}`);
 });

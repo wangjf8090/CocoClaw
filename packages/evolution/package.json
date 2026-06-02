@@ -1,7 +1,7 @@
 {
   "name": "@selfclaw/evolution",
-  "version": "2.0.0",
-  "description": "Self-Evolution Harness with Skill Audit, Optimization & Lifecycle management",
+  "version": "2.1.0",
+  "description": "Self-Evolution Harness with Skill Audit, Optimization, Lifecycle, Compliance & Template",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
