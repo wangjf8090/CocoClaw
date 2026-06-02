@@ -10,11 +10,16 @@ Self-Evolution Harness（自我进化编排层）是 SelfClaw 的核心创新，
 2. **性能进化器 (PerformanceEvolver)** - 自动调整性能参数
 3. **记忆进化器 (MemoryEvolver)** - 优化记忆索引结构和权重
 
+v2.1 新增两个核心模块，对标 Coze 3.0 行业技能包生态：
+
+4. **技能合规检查 (SkillCompliance)** - 检查 SKILL.md 是否符合上架规范
+5. **行业模板生成 (SkillTemplate)** - 自动生成 Coze 3.0 可上架的技能包结构
+
 ## 核心架构
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                Self-Evolution Harness                   │
+│                Self-Evolution Harness v2.1               │
 │                                                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │ Permission   │  │ Performance  │  │   Memory     │  │
@@ -22,6 +27,18 @@ Self-Evolution Harness（自我进化编排层）是 SelfClaw 的核心创新，
 │  └──────────────┘  └──────────────┘  └──────────────┘  │
 │          │                 │                 │          │
 │          └─────────────────┼─────────────────┘          │
+│                            ▼                            │
+│  ┌──────────────────┐  ┌──────────────────┐             │
+│  │ Skill Compliance │  │  Skill Template  │             │
+│  │   (Coze 3.0)     │  │   (Coze 3.0)     │             │
+│  └──────────────────┘  └──────────────────┘             │
+│          │                     │                         │
+│          └──────────┬──────────┘                         │
+│                     ▼                                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │ Skill Audit  │  │ Skill Optimize│  │Skill Lifecycle│  │
+│  │  (Token预算) │  │  (描述精简)   │  │ (健康评分)    │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
 │                            ▼                            │
 │                  ┌──────────────────┐                   │
 │                  │  A/B Test &      │                   │
@@ -344,3 +361,115 @@ Self-Evolution Harness 代表了 LLM 编排系统的新范式：
 > **不是静态配置的工具，而是能够从自身运行中学习、持续优化自身行为的活系统。**
 
 它实现了真正的「越用越好用」，为构建真正的自主智能系统奠定了基础。
+
+---
+
+## Coze 3.0 对接说明 (v2.1+)
+
+### 背景
+
+Coze 3.0 于 2026 年 6 月 1 日发布，推出了**行业技能包**生态，为金融、法律、自媒体、医疗等领域提供开箱即用的专家技能。SelfClaw Evolution v2.1 新增两个核心模块，直接对标 Coze 3.0 的技能包规范。
+
+### 模块对比
+
+| 模块 | 功能 | 对应 Coze 能力 |
+|------|------|----------------|
+| **SkillCompliance** | 行业合规检查 | 行业技能包上架标准 |
+| **SkillTemplate** | 行业模板生成 | Coze 3.0 可上架技能包结构 |
+| **SkillAudit** | Token 预算审计 | Codex 预算分配算法 |
+| **SkillOptimize** | 描述精简优化 | 路标式描述规范（≤40 词） |
+| **SkillLifecycle** | 健康评分与使用统计 | 技能使用数据追踪 |
+
+### 行业分类
+
+技能包支持 7 大行业分类：
+- **finance** — 股票、基金、投资、财报、估值
+- **legal** — 法律、法规、案例、合规、合同
+- **self-media** — 自媒体、抖音、小红书、爆款、运营
+- **medical** — 医疗、健康、临床、诊断、药物
+- **tech** — 开发、自动化、代码、部署、架构
+- **education** — 教育、学习、考试、课程、知识
+- **general** — 通用工具、效率、自动化
+
+### API 端点
+
+```
+# 技能合规检查
+GET  /api/compliance           — 批量合规报告
+GET  /api/compliance/:skillName — 单技能合规详情
+
+# 行业模板生成
+POST /api/template             — 批量生成 Coze 3.0 模板
+GET  /api/template/:skillName  — 单技能模板预览
+
+# 原有端点
+GET  /api/audit                — 技能审计（Token 预算 + 重复检测）
+POST /api/optimize             — 描述优化
+GET  /api/lifecycle            — 生命周期报告
+```
+
+### 使用示例
+
+```bash
+# 1. 批量合规检查
+curl http://localhost:8084/api/compliance | jq '.averageScore, .marketplaceReadyCount'
+
+# 2. 单技能合规详情
+curl http://localhost:8084/api/compliance/market-research | jq '.score, .checks[]'
+
+# 3. 批量生成行业模板（生成 SKILL.marketplace.md + references/ + scripts/）
+curl -X POST http://localhost:8084/api/template \
+  -H 'Content-Type: application/json' \
+  -d '{"outputDir": "/path/to/skills"}'
+
+# 4. 预览单技能模板（不写文件）
+curl http://localhost:8084/api/template/ai-text-detox | jq '.content'
+```
+
+### 合规评分体系
+
+| 检查项 | 扣分 | 说明 |
+|--------|------|------|
+| 必填字段缺失 | -20 | name, description |
+| 推荐字段缺失 | -5 | category, tags |
+| 描述过长 | -5 | >150 字符 |
+| 缺少动作词 | -5 | 不符合路标式规范 |
+| 安全风险 | -20 | 硬编码密钥、危险命令 |
+| 缺少目录结构 | -5 | references/, scripts/ |
+
+**上架就绪标准**：评分 ≥80 且无 fail 级问题。
+
+### 行业模板规范
+
+生成的 SKILL.md 包含：
+- Frontmatter：name, description, category, tags, version, author, license, coze_compatible, coze_version
+- 使用场景模板
+- 快速参考表格
+- 约束说明
+
+自动创建目录：
+- `references/` — 行业参考资料（来源、框架、方法）
+- `scripts/` — 可执行脚本占位
+
+### 对接 Coze 3.0 上架流程
+
+1. **合规检查**：`GET /api/compliance`，确保评分 ≥80
+2. **自动修复**：合规报告中包含 `autoFixContent`，可直接替换 SKILL.md
+3. **行业包装**：`POST /api/template`，生成 SKILL.marketplace.md
+4. **人工审核**：检查生成的 frontmatter 和 references/ 内容
+5. **上传 Coze**：在 Coze 3.0 技能商店创建技能，导入 SKILL.marketplace.md
+
+### 技术细节
+
+- **行业检测**：基于关键词映射 + Jaccard 相似度
+- **描述生成**：复用 skill-audit 的 suggestDescription，按行业模板包装
+- **安全扫描**：正则检测硬编码密钥、密码、危险命令
+- **结构检查**：验证 SKILL.md frontmatter、references/、scripts/ 目录
+- **自动修复**：在原 SKILL.md 基础上补充缺失字段和优化描述
+
+### 未来扩展
+
+- **Coze 3.0 Gateway 适配** — 让 SelfClaw 服务可被 Coze 项目空间直接 @调度
+- **项目空间集成** — Context Relay 升级为项目级上下文隔离和共享
+- **跨端同步** — Memory 服务支持设备级上下文快照
+- **使用数据对接** — skill-lifecycle 连接 Coze Agent 的真实使用指标

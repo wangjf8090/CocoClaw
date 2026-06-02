@@ -19,9 +19,11 @@ SelfClaw is a comprehensive, production-ready autonomous AI agent framework feat
 │  LLM Stream  │  Vector DB        │  RBAC / JWT                 │
 ├───────────────┬───────────────────┬────────────────────────────┤
 │  Evolution    │  SOUL Module      │  Market Research            │
-│  Harness      │  (8085)           │  Agent World Daily          │
+│  Harness v2.1 │  (8085)           │  Agent World Daily          │
 │  (8084)      │  Personality      │  Trend Analysis             │
 │  Self-Optim. │  Emotional State  │  Skill Market Insights      │
+│  Compliance  │                   │  Coze 3.0 Integration       │
+│  Template    │                   │                             │
 ├───────────────┴───────────────────┼────────────────────────────┤
 │                    Infrastructure  │  PostgreSQL / Redis         │
 │                                    │  Prometheus / Grafana       │
