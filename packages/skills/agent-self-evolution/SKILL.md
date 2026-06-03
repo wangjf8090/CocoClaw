@@ -645,3 +645,366 @@ Or use quick prompts:
 - "Log this to learnings"
 - "Create a skill from this solution"
 - "Check .learnings/ for related issues"
+
+## ⚠️ Failure Modes & Troubleshooting
+
+本章节记录学习记录系统的**典型失败场景**、**失败原因**和**具体修复方法**。
+
+### 场景1：学习条目写入后，后续对话无法检索到该记录
+
+**失败原因**：`.learnings/` 目录未被 OpenClaw 或 Agent 正确加载；或文件命名不符合规范（如使用了中文文件名）。
+
+**判断标准**：
+- 文件存在于 `.learnings/` 目录
+- 但 `memory_search` 或 `grep` 均找不到相关内容
+- hook 脚本执行时无报错但记录未生效
+
+**修复流程**：
+```bash
+# 1. 检查 .learnings/ 目录位置
+ls -la ~/.openclaw/workspace/.learnings/  # OpenClaw
+ls -la ./.learnings/  # 项目根目录
+
+# 2. 检查文件是否可读
+cat .learnings/LEARNINGS.md | head -20
+
+# 3. 确认文件名符合规范（纯英文，无空格）
+# 如果有中文文件名，重命名
+mv "学习笔记.md" LEARNINGS.md
+
+# 4. 检查 OpenClaw 配置是否包含 .learnings/
+# 查看 ~/.openclaw/config.yaml 或 workspace 配置
+grep -r "learnings" ~/.openclaw/
+
+# 5. 如果是路径问题，在正确位置创建链接
+ln -sf /absolute/path/to/.learnings ~/.openclaw/workspace/.learnings
+```
+
+### 场景2：用户纠正后忘记记录，事后想补录但上下文已丢失
+
+**失败原因**：未使用即时记录习惯；或在长对话的后期才想起需要补录，此时 AI 已无法准确回忆"哪个纠正对应哪个问题"。
+
+**判断标准**：
+- 用户说"上次我纠正过你 XXX，但现在你又犯了"
+- 试图补录但无法准确描述当时的上下文
+
+**修复流程**：
+```bash
+# 1. 先承认遗漏，不要虚构内容
+# 在对话中明确说明："抱歉没有记录，让我根据现有理解补充"
+
+# 2. 记录时使用模糊但诚实的描述
+# 在 LEARNINGS.md 中添加：
+cat >> .learnings/LEARNINGS.md << 'EOF'
+## [LRN-$(date +%Y%m%d)-XXX] correction
+
+**Logged**: $(date -Iseconds)
+**Priority**: medium
+**Status**: pending
+**Area**: unknown
+
+### Summary
+用户曾纠正过 [根据残余记忆描述]
+
+### Details
+具体纠正内容已无法准确回忆。建议在后续对话中留意相关场景。
+
+### Suggested Action
+如果再次遇到类似场景，主动请求用户确认正确做法
+
+### Metadata
+- Source: user_feedback (retroactive - context lost)
+- Note: "此条目为事后补录，可能不完整"
+EOF
+
+# 3. 在 hook 配置中添加更强的提醒
+# 编辑 hooks/activator.sh，添加提醒：
+echo 'echo "⚠️ 提醒：检查是否需要记录学习条目"' >> ~/.bashrc
+```
+
+### 场景3：错误日志写入 `.learnings/ERRORS.md` 但重复出现相同错误
+
+**失败原因**：只记录了"错误是什么"，未记录"如何修复"；或修复方案已被遗忘，未promote到 CLAUDE.md/AGENTS.md。
+
+**判断标准**：
+- `ERRORS.md` 中出现相同错误 3 次以上
+- 或同一 `See Also` 链接指向的条目越来越多
+
+**修复流程**：
+```bash
+# 1. 搜索重复错误
+grep -B3 "Summary" .learnings/ERRORS.md | grep -A3 "git push"
+
+# 2. 如果确认是同一错误，检查是否有 Suggested Fix
+# 编辑该条目，补充完整修复步骤
+
+# 3. 检查是否需要 promote
+# 如果该错误涉及特定命令或环境，执行：
+# 在 CLAUDE.md 或 AGENTS.md 中添加预防规则
+
+# 例如：如果 git push 需要先设置 remote
+cat >> CLAUDE.md << 'EOF'
+## Git 操作
+- 首次 push 前必须检查 remote 是否配置：`git remote -v`
+- 如果没有 remote，先添加：`git remote add origin <url>`
+EOF
+
+# 4. 更新 ERRORS.md 条目状态
+sed -i 's/Status\*\*: pending/Status**: promoted/' .learnings/ERRORS.md
+echo "### Resolution" >> .learnings/ERRORS.md
+echo "- **Promoted**: CLAUDE.md" >> .learnings/ERRORS.md
+```
+
+### 场景4：promote 操作后，原条目状态未更新，导致维护混乱
+
+**失败原因**：人工promote后忘记更新原条目的 `Status` 和 `Promoted` 字段，导致后续审查时仍将其视为"待处理"。
+
+**判断标准**：
+- CLAUDE.md 中已有某条规则
+- 但 ERRORS.md/LEARNINGS.md 中相同主题的条目仍显示 `pending`
+
+**修复流程**：
+```bash
+# 1. 搜索 CLAUDE.md 中的规则来源
+grep -n "git.*push" CLAUDE.md
+
+# 2. 找到对应行后，搜索 ERRORS.md 中的相关条目
+grep -B10 "git push" .learnings/ERRORS.md | grep "^## \[ERR-"
+
+# 3. 更新原条目状态
+# 手动编辑或使用脚本：
+sed -i '/^## \[ERR-.*git.*push\]$/,/^---$/{
+  s/\*\*Status\*\*: pending/**Status**: promoted/
+  /\*\*Promoted\*\*:/!a\**Promoted**: CLAUDE.md
+}' .learnings/ERRORS.md
+
+# 4. 添加 Resolution 说明
+# 在该条目 Metadata 后添加：
+# ### Resolution
+# - **Promoted**: 2025-01-15T10:00:00Z
+# - **To**: CLAUDE.md (Git 操作章节)
+```
+
+### 场景5：`.learnings/` 文件膨胀失控，超过 500 行
+
+**失败原因**：所有条目都标记为 `pending` 且从不审查；或 promote 操作遗漏了过时条目。
+
+**判断标准**：
+- `wc -l .learnings/*.md` 显示文件超过 500 行
+- `grep -c "Status\*\*: pending" .learnings/*.md` 显示大量待处理条目
+
+**修复流程**：
+```bash
+# 1. 统计各类条目数量
+echo "=== 统计 ===" && \
+echo "LEARNINGS pending: $(grep -c 'Status\*\*: pending' .learnings/LEARNINGS.md)" && \
+echo "ERRORS pending: $(grep -c 'Status\*\*: pending' .learnings/ERRORS.md)" && \
+echo "LEARNINGS resolved: $(grep -c 'Status\*\*: resolved' .learnings/LEARNINGS.md)"
+
+# 2. 批量审查 30 天以上的 pending 条目
+find .learnings/ -name "*.md" -mtime +30 -exec grep -l "Status\*\*: pending" {} \;
+
+# 3. 导出待审查条目到临时文件
+grep -B2 "Status\*\*: pending" .learnings/LEARNINGS.md > /tmp/pending_review.txt
+
+# 4. 批量更新策略：
+# - 超过 60 天的 resolved 条目：考虑归档或删除
+# - 超过 60 天的 pending 条目：主动 resolve 或 promote
+```
+
+### 场景6：hook 脚本执行失败，导致错误未被自动捕获
+
+**失败原因**：hook 脚本没有执行权限；或环境变量配置缺失；或 agent 不支持该 hook 类型。
+
+**判断标准**：
+- `scripts/error-detector.sh` 执行时报错
+- hook 配置正确但错误仍然发生
+
+**修复流程**：
+```bash
+# 1. 测试 hook 脚本是否可执行
+./scripts/error-detector.sh  # 如果报错 Permission denied
+chmod +x scripts/error-detector.sh
+
+# 2. 检查脚本依赖
+head -20 scripts/error-detector.sh | grep "^#!"
+
+# 3. 如果依赖 bash，检查系统 bash 路径
+which bash
+# 编辑脚本第一行：
+# !/usr/bin/env bash  # 改用 env 查找
+
+# 4. 测试输出是否正确
+bash -c 'source scripts/error-detector.sh && echo "OK"'
+
+# 5. 检查 JSON 配置格式
+cat .claude/settings.json | python3 -m json.tool > /dev/null && echo "JSON OK"
+```
+
+### 场景7：使用 `sessions_send` 发送学习条目后，接收方无法解析
+
+**失败原因**：发送的内容格式与接收方 skill 的预期格式不匹配；或消息过长被截断。
+
+**判断标准**：
+- 发送成功但接收方回复"无法理解"
+- 或接收方忽略消息内容
+
+**修复流程**：
+```bash
+# 1. 检查 sessions_send 的消息格式限制
+# 消息应简洁，突出关键信息
+
+# 2. 使用标准格式发送：
+sessions_send --session-id <target_session_id> --message '
+📚 学习记录同步
+
+## 关键学习
+- 项目使用 pnpm 而非 npm
+- API 变更后需重新生成 client
+
+## 来源
+详见 .learnings/LEARNINGS.md [LRN-20250115-001]
+'
+
+# 3. 如果需要发送完整条目，使用文件引用而非内联
+# 先导出到临时文件
+grep -A30 "LRN-20250115-001" .learnings/LEARNINGS.md > /tmp/learning.txt
+# 然后通过其他方式（git commit、文件同步）共享
+```
+
+## 🔒 Safety & High-Risk Operations
+
+以下操作具有**不可逆性**或**高风险性**，执行前必须确认条件。
+
+### 风险操作1：批量 promote 所有 pending 条目到 CLAUDE.md
+
+**风险等级**：🔴 高风险
+
+**为什么危险**：
+- 大量条目同时写入会导致 CLAUDE.md 结构混乱
+- 低质量/错误的条目会被固化，误导后续决策
+- 无法准确定位是哪条条目导致的问题
+
+**禁止行为**：
+```bash
+# 不要使用循环批量 promote
+for entry in $(grep -l "Status: pending" .learnings/*.md); do
+  cat "$entry" >> CLAUDE.md  # 危险！
+done
+```
+
+**安全执行流程**：
+```bash
+# 1. 逐条审查，只 promote 高置信度条目
+# 标准：高 priority + 具体 Suggested Action + 跨任务验证
+
+# 2. 每次 promote 限制数量（最多 3 条）
+grep -B5 "Priority\*\*: high" .learnings/LEARNINGS.md | grep "^## \[LRN-"
+
+# 3. 在 CLAUDE.md 中使用明确分组
+# 如：
+# ## 🚨 高优先级规则（来自学习记录）
+# ## 📝 中优先级规则
+```
+
+### 风险操作2：删除 `.learnings/` 中的 resolved 条目
+
+**风险等级**：🟠 中高风险
+
+**为什么危险**：
+- resolved 条目仍包含上下文信息，对调试有价值
+- 如果其他条目有 `See Also` 链接指向它，会产生悬空引用
+- 无法追踪"这个问题最终是怎么解决的"
+
+**禁止行为**：
+```bash
+# 不要直接删除所有 resolved 条目
+sed -i '/Status\*\*: resolved/,/^---$/d' .learnings/LEARNINGS.md
+```
+
+**安全替代方案**：
+```bash
+# 1. 先检查是否有悬空引用
+grep "See Also: LRN" .learnings/*.md | cut -d: -f2 | while read ref; do
+  grep -q "## \[$ref\]" .learnings/LEARNINGS.md || echo "悬空引用: $ref"
+done
+
+# 2. 只归档旧条目，不删除
+mkdir -p .learnings/archive/
+mv .learnings/LEARNINGS.md .learnings/archive/LEARNINGS-$(date +%Y%m).md
+
+# 3. 创建新文件，保留必要模板
+cat > .learnings/LEARNINGS.md << 'EOF'
+# Learnings Archive
+
+> 历史记录已归档至 `.learnings/archive/` 目录
+
+---
+EOF
+```
+
+### 风险操作3：在 `SOUL.md` 中写入行为准则后永久生效
+
+**风险等级**：🟠 中高风险
+
+**为什么危险**：
+- `SOUL.md` 影响 agent 的核心行为模式
+- 一旦写入，可能导致 agent 在某些场景下表现过于死板
+- 难以回滚到"没有这条规则"的状态
+
+**禁止行为**：
+```markdown
+# 不要写入绝对化规则
+## SOUL.md
+- 永远不要使用 npm（应使用 pnpm）
+- 所有 API 调用必须包含重试逻辑
+```
+
+**安全替代方案**：
+```markdown
+# SOUL.md 中使用建议性语言
+## 构建工具
+- 项目倾向于 pnpm，如果遇到特定场景不支持，可评估 npm 兼容性
+
+## 错误处理
+- 建议在关键 API 调用中加入重试逻辑
+- 但应根据具体场景判断是否必要
+```
+
+### 风险操作4：自动提取学习条目为 skill 时未验证就发布
+
+**风险等级**：🔴 高风险
+
+**为什么危险**：
+- 从单个错误场景提取的 skill 可能不完整
+- 错误的 skill 被其他 agent 使用会导致连锁故障
+- 一旦发布到共享目录，影响范围不可控
+
+**禁止行为**：
+```bash
+# 不要在未测试的情况下直接发布
+./scripts/extract-skill.sh buggy-fix
+cd skills/buggy-fix && git add . && git commit -m "Add skill" && git push
+```
+
+**安全执行流程**：
+```bash
+# 1. 使用 --dry-run 验证
+./scripts/extract-skill.sh buggy-fix --dry-run
+
+# 2. 在隔离环境测试
+# 复制 skill 到测试 workspace
+cp -r skills/buggy-fix /tmp/test-workspace/skills/
+
+# 3. 手动执行 skill 验证输出
+# 确保 skill 在独立运行时不依赖原始上下文
+
+# 4. 添加测试用例（如果有）
+# 创建 skills/buggy-fix/test_skill.py
+
+# 5. 代码审查
+# 让人类同事 review skill 内容
+
+# 6. 确认无问题后再发布
+./scripts/extract-skill.sh buggy-fix
+```

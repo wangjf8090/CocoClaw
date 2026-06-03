@@ -105,8 +105,8 @@ const DEFAULT_OPTIMIZE_V2: Required<OptimizeConfigV2> = {
  * 消融实验: 去掉缓冲区后SpreadsheetBench从77.5%降到72.9%
  */
 export class RejectedEditBuffer {
-  private buffer: Array<{ edit: TextEdit; rejectionReason: string; timestamp: string }> = [];
-  private maxSize: number;
+  protected buffer: Array<{ edit: TextEdit; rejectionReason: string; timestamp: string }> = [];
+  protected maxSize: number;
 
   constructor(maxSize: number = 100) {
     this.maxSize = maxSize;
@@ -509,4 +509,432 @@ function applyReplaceEdit(content: string, edit: TextEdit): string {
     return line;
   });
   return result.join('\n');
+}
+
+// ============================================================================
+// v3.0 新增: LRScheduler (来自 skill-pipeline.ts)
+// ============================================================================
+
+/**
+ * 学习率调度器
+ * 
+ * 对应 SkillOpt skillopt/optimizer/scheduler.py
+ * 支持: cosine | linear | constant | autonomous
+ * 
+ * 来源: arXiv:2605.23904
+ */
+export type LRSchedulerType = 'cosine' | 'linear' | 'constant' | 'autonomous';
+
+export interface LRSchedulerConfig {
+  /** 最大学习率 / Edit Budget (默认: 4) */
+  maxLR: number;
+  /** 最小学习率 (默认: 2) */
+  minLR: number;
+  /** 调度类型 */
+  schedulerType: LRSchedulerType;
+  /** 总训练步数 (用于计算衰减) */
+  totalSteps: number;
+  /** 是否由LLM自主决定 (autonomous模式) */
+  autonomousDecision?: boolean;
+}
+
+export const DEFAULT_LR_SCHEDULER_CONFIG: Required<Omit<LRSchedulerConfig, 'autonomousDecision'>> & { autonomousDecision: boolean } = {
+  maxLR: 4,
+  minLR: 2,
+  schedulerType: 'cosine',
+  totalSteps: 100,
+  autonomousDecision: false,
+};
+
+export class LRScheduler {
+  private config: LRSchedulerConfig;
+  private stepCount: number = 0;
+
+  constructor(config: Partial<LRSchedulerConfig> = {}) {
+    this.config = { ...DEFAULT_LR_SCHEDULER_CONFIG, ...config };
+  }
+
+  /**
+   * 获取当前步骤的学习率 (edit budget)
+   * 
+   * 对应 SkillOpt skillopt/optimizer/optimizer.py LRScheduler.get_budget()
+   */
+  getLR(): number {
+    const { maxLR, minLR, schedulerType, totalSteps } = this.config;
+    const t = this.stepCount;
+
+    // autonomous模式由外部决定
+    if (schedulerType === 'autonomous') {
+      if (this.config.autonomousDecision) {
+        // 外部已决定，直接返回maxLR
+        return maxLR;
+      }
+      // 自主决策：返回默认budget，由调用方后续处理
+      return maxLR;
+    }
+
+    switch (schedulerType) {
+      case 'constant':
+        // 固定学习率
+        return maxLR;
+
+      case 'linear':
+        // 线性衰减: L_t = L_max - (L_max - L_min) * t/T
+        return Math.max(
+          minLR,
+          maxLR - (maxLR - minLR) * (t / totalSteps)
+        );
+
+      case 'cosine':
+        // 余弦衰减: L_t = L_min + 0.5 * (L_max - L_min) * (1 + cos(pi * t/T))
+        // 从大到小震荡衰减
+        const cosineValue = Math.cos((Math.PI * t) / totalSteps);
+        return minLR + 0.5 * (maxLR - minLR) * (1 + cosineValue);
+
+      default:
+        return maxLR;
+    }
+  }
+
+  /**
+   * 获取当前编辑预算 (Budget = LR的别名)
+   */
+  getBudget(): number {
+    return this.getLR();
+  }
+
+  /**
+   * 获取探索系数 (用于计算探索-利用权衡)
+   * 
+   * cosine模式: 早期高探索，后期高利用
+   */
+  getExplorationFactor(): number {
+    const { maxLR, minLR } = this.config;
+    const currentLR = this.getLR();
+    // 探索因子从1.0(高探索)到0.0(高利用)
+    return (currentLR - minLR) / (maxLR - minLR);
+  }
+
+  /**
+   * 更新步数计数器
+   */
+  increment(): void {
+    this.stepCount++;
+  }
+
+  /**
+   * 更新步数计数器 (带步长)
+   */
+  incrementBy(steps: number): void {
+    this.stepCount += steps;
+  }
+
+  /**
+   * 重置计数器
+   */
+  reset(): void {
+    this.stepCount = 0;
+  }
+
+  /**
+   * 获取当前步数
+   */
+  getStep(): number {
+    return this.stepCount;
+  }
+
+  /**
+   * 获取配置
+   */
+  getConfig(): LRSchedulerConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * 设置总步数 (可用于动态调整)
+   */
+  setTotalSteps(totalSteps: number): void {
+    this.config.totalSteps = totalSteps;
+  }
+
+  /**
+   * 获取调度进度 (0-1)
+   */
+  getProgress(): number {
+    return Math.min(1, this.stepCount / this.config.totalSteps);
+  }
+
+  /**
+   * 转换为可序列化的状态
+   */
+  toJSON(): object {
+    return {
+      config: this.config,
+      stepCount: this.stepCount,
+      currentLR: this.getLR(),
+      progress: this.getProgress(),
+    };
+  }
+
+  /**
+   * 从状态恢复
+   */
+  static fromJSON(json: { config?: Partial<LRSchedulerConfig>; stepCount?: number }): LRScheduler {
+    const scheduler = new LRScheduler(json.config);
+    if (json.stepCount) {
+      scheduler.stepCount = json.stepCount;
+    }
+    return scheduler;
+  }
+}
+
+// ============================================================================
+// v3.0 新增: 增强的 RejectedEditBuffer
+// ============================================================================
+
+import fs from "node:fs";
+import path from "node:path";
+
+/**
+ * 被拒绝编辑记录的完整结构
+ */
+export interface RejectedEditRecord {
+  skillVersion: string;
+  appliedEdits: Array<{ type: 'add' | 'delete' | 'replace'; target: string; content: string; reason?: string }>;
+  scoreDrop: number;
+  failPatterns: string[];
+  epoch: number;
+  step: number;
+  timestamp: string;
+}
+
+/**
+ * 增强版被拒绝编辑缓冲区
+ * 
+ * 支持文件系统持久化
+ * 提供上下文生成用于prompt注入
+ * 
+ * 来源: arXiv:2605.23904
+ * 消融实验: 去掉缓冲区后SpreadsheetBench从77.5%降到72.9%
+ */
+export class PersistentRejectedEditBuffer {
+  private records: RejectedEditRecord[] = [];
+  private maxSize: number;
+  private bufferPath: string | null = null;
+
+  constructor(maxSize: number = 100, bufferPath?: string) {
+    this.maxSize = maxSize;
+    if (bufferPath) {
+      this.bufferPath = bufferPath;
+      this.loadFromDisk();
+    }
+  }
+
+  /**
+   * 从磁盘加载缓冲区
+   */
+  private loadFromDisk(): void {
+    if (!this.bufferPath) return;
+    try {
+      if (fs.existsSync(this.bufferPath)) {
+        const data = fs.readFileSync(this.bufferPath, "utf8");
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          this.records = parsed;
+        }
+      }
+    } catch (error) {
+      console.error("[RejectedEditBuffer] Failed to load from disk:", error);
+      this.records = [];
+    }
+  }
+
+  /**
+   * 保存缓冲区到磁盘
+   */
+  private saveToDisk(): void {
+    if (!this.bufferPath) return;
+    try {
+      const dir = path.dirname(this.bufferPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(this.bufferPath, JSON.stringify(this.records, null, 2));
+    } catch (error) {
+      console.error("[RejectedEditBuffer] Failed to save to disk:", error);
+    }
+  }
+
+  /**
+   * 添加被拒绝的编辑记录
+   */
+  addRecord(record: RejectedEditRecord): void {
+    this.records.push(record);
+    if (this.records.length > this.maxSize) {
+      this.records.shift();
+    }
+    this.saveToDisk();
+  }
+
+  /**
+   * 添加被拒绝的编辑 (简化版本)
+   */
+  add(edit: TextEdit, reason: string): void {
+    this.addRecord({
+      skillVersion: `v${Date.now()}`,
+      appliedEdits: [edit],
+      scoreDrop: 0,
+      failPatterns: [reason],
+      epoch: 0,
+      step: 0,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * 获取所有记录
+   */
+  getRecords(): RejectedEditRecord[] {
+    return [...this.records];
+  }
+
+  /**
+   * 获取所有记录 (简化版本)
+   */
+  getAll(): Array<{ edit: { type: 'add' | 'delete' | 'replace'; target: string; content: string }; rejectionReason: string; timestamp: string }> {
+    return this.records.map((r) => ({
+      edit: r.appliedEdits[0] ?? { type: 'replace' as const, target: '', content: '' },
+      rejectionReason: r.failPatterns.join('; '),
+      timestamp: r.timestamp,
+    }));
+  }
+
+  /**
+   * 获取上下文字符串 (用于prompt注入)
+   * 
+   * 返回格式化的字符串，包含最近N条被拒绝的编辑
+   * 供Reflect阶段的LLM作为负反馈输入
+   */
+  getContext(maxEntries: number = 10): string {
+    if (this.records.length === 0) {
+      return "No previous rejected attempts.";
+    }
+
+    const lines = ["Previous rejected attempts (do NOT repeat these):"];
+    const recentRecords = this.records.slice(-maxEntries);
+
+    for (const record of recentRecords) {
+      for (const edit of record.appliedEdits) {
+        const contentPreview = edit.content.slice(0, 50).replace(/\n/g, ' ');
+        lines.push(
+          `- Edit: "${contentPreview}..." → Score dropped by ${record.scoreDrop.toFixed(1)}pp`
+        );
+        if (record.failPatterns.length > 0) {
+          lines.push(`  Reason: ${record.failPatterns[0].slice(0, 100)}`);
+        }
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  /**
+   * 检查类似编辑是否之前被拒绝
+   */
+  wasRejectedBefore(target: string, type: TextEdit['type']): boolean {
+    return this.records.some((record) =>
+      record.appliedEdits.some(
+        (edit) => edit.target === target && edit.type === type
+      )
+    );
+  }
+
+  /**
+   * 获取失败模式统计
+   */
+  getFailurePatternStats(): Record<string, number> {
+    const stats: Record<string, number> = {};
+    for (const record of this.records) {
+      for (const pattern of record.failPatterns) {
+        // 简化：取前30字符作为模式标识
+        const key = pattern.slice(0, 30).toLowerCase();
+        stats[key] = (stats[key] ?? 0) + 1;
+      }
+    }
+    return stats;
+  }
+
+  /**
+   * 获取按epoch分组的记录
+   */
+  getRecordsByEpoch(): Map<number, RejectedEditRecord[]> {
+    const byEpoch = new Map<number, RejectedEditRecord[]>();
+    for (const record of this.records) {
+      if (!byEpoch.has(record.epoch)) {
+        byEpoch.set(record.epoch, []);
+      }
+      byEpoch.get(record.epoch)!.push(record);
+    }
+    return byEpoch;
+  }
+
+  /**
+   * 清空缓冲区
+   */
+  clear(): void {
+    this.records = [];
+    this.saveToDisk();
+  }
+
+  /**
+   * 获取缓冲区大小
+   */
+  get size(): number {
+    return this.records.length;
+  }
+
+  /**
+   * 获取容量
+   */
+  get capacity(): number {
+    return this.maxSize;
+  }
+
+  /**
+   * 导出为JSON
+   */
+  toJSON(): object {
+    return {
+      records: this.records,
+      maxSize: this.maxSize,
+      bufferPath: this.bufferPath,
+    };
+  }
+}
+
+// ============================================================================
+// v3.0 新增: 默认持久化缓冲区实例
+// ============================================================================
+
+// 默认缓冲区实例（用于向后兼容）
+let globalPersistentBuffer: PersistentRejectedEditBuffer | null = null;
+
+/**
+ * 获取全局持久化缓冲区
+ */
+export function getGlobalRejectedBuffer(
+  outputDir: string = "/app/data/selfclaw-evolution/pipeline"
+): PersistentRejectedEditBuffer {
+  if (!globalPersistentBuffer) {
+    const bufferPath = path.join(outputDir, "rejected-edit-buffer.json");
+    globalPersistentBuffer = new PersistentRejectedEditBuffer(100, bufferPath);
+  }
+  return globalPersistentBuffer;
+}
+
+/**
+ * 重置全局缓冲区
+ */
+export function resetGlobalRejectedBuffer(): void {
+  globalPersistentBuffer = null;
 }
