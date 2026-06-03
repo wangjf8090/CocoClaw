@@ -1,16 +1,21 @@
 /**
- * Skill Optimize - 技能描述优化模块
- * 移植自 skill-cleaner 的描述精简引擎
- *
- * 核心理念：Skill 要像路标，不该把整本说明挂在路标上
- * 实证效果：90词描述 → 40词以内，Agent 选对率飙升
+ * Skill Optimize - 技能优化模块 v2.1
+ * 
+ * v2.0: 移植自 skill-cleaner 的描述精简引擎
+ *       90词描述 → 40词以内，Agent选对率飙升
+ * 
+ * v2.1: 基于SkillOpt(arXiv:2605.23904)的文本空间优化增强
+ *       - 文本学习率（Textual Learning Rate）: 每次最多lr个add/delete/replace操作
+ *       - 被拒绝编辑缓冲区（Rejected-Edit Buffer）: 失败提案作为负反馈
+ *       - 验证门控（Validation Gate）: held-out验证集严格提升才接受
+ *       - 经历池成败比例配置
  */
 
 import type { Skill } from "./skill-audit.js";
 import { suggestDescription } from "./skill-audit.js";
 
 // ============================================================================
-// Types
+// v2.0 Types (保留)
 // ============================================================================
 
 export interface OptimizationResult {
@@ -21,7 +26,6 @@ export interface OptimizationResult {
   suggestedChars: number;
   savedChars: number;
   savedTokensEstimate: number;
-  /** 变更类型 */
   changeType: "compress" | "restructure" | "noop";
 }
 
@@ -35,69 +39,157 @@ export interface OptimizationReport {
 }
 
 // ============================================================================
-// Optimization Rules
+// v2.1 新增类型
 // ============================================================================
 
-/** 冗余模式 → 精简替换 */
+/**
+ * 文本空间编辑操作
+ * 
+ * 来源: arXiv:2605.23904 (SkillOpt)
+ * 模仿深度学习的参数更新，但作用于技能文档的文本空间
+ */
+export interface TextEdit {
+  type: 'add' | 'delete' | 'replace';
+  target: string;         // 目标位置描述
+  content: string;        // 添加/替换的内容（delete时为空）
+  reason: string;         // 编辑原因
+  source: 'reflection' | 'slow_update' | 'meta_skill';
+}
+
+/**
+ * 验证门控结果
+ * 
+ * 来源: arXiv:2605.23904
+ * 候选编辑必须在held-out验证集上严格提升才被接受
+ */
+export interface GateResult {
+  accepted: boolean;
+  currentScore: number;
+  candidateScore: number;
+  delta: number;
+  rejectionReason?: string;
+}
+
+/**
+ * v2.1 优化配置
+ */
+export interface OptimizeConfigV2 {
+  /** 文本学习率: 每步最多编辑操作数, 默认4 (SkillOpt论文验证) */
+  textualLearningRate?: number;
+  /** 是否启用验证门控, 默认true */
+  enableGate?: boolean;
+  /** 验证集任务数, 默认10 */
+  heldOutTaskCount?: number;
+  /** 门控指标: hard(精确匹配) / soft(部分分) / mixed, 默认hard */
+  gateMetric?: 'hard' | 'soft' | 'mixed';
+  /** 经历池成功占比, 默认0.75 (75%成功,25%失败) */
+  experienceSuccessRatio?: number;
+  /** 是否自适应调整经历池比例, 默认true */
+  adaptiveExperienceRatio?: boolean;
+}
+
+const DEFAULT_OPTIMIZE_V2: Required<OptimizeConfigV2> = {
+  textualLearningRate: 4,
+  enableGate: true,
+  heldOutTaskCount: 10,
+  gateMetric: 'hard',
+  experienceSuccessRatio: 0.75,
+  adaptiveExperienceRatio: true,
+};
+
+/**
+ * 被拒绝编辑缓冲区
+ * 
+ * 来源: arXiv:2605.23904
+ * 失败的编辑提案不丢弃，作为后续反射的负反馈
+ * 消融实验: 去掉缓冲区后SpreadsheetBench从77.5%降到72.9%
+ */
+export class RejectedEditBuffer {
+  private buffer: Array<{ edit: TextEdit; rejectionReason: string; timestamp: string }> = [];
+  private maxSize: number;
+
+  constructor(maxSize: number = 100) {
+    this.maxSize = maxSize;
+  }
+
+  /** 添加被拒绝的编辑提案 */
+  add(edit: TextEdit, reason: string): void {
+    this.buffer.push({
+      edit,
+      rejectionReason: reason,
+      timestamp: new Date().toISOString(),
+    });
+    if (this.buffer.length > this.maxSize) {
+      this.buffer.shift();
+    }
+  }
+
+  /** 获取所有被拒绝的编辑（供反射阶段参考） */
+  getAll(): Array<{ edit: TextEdit; rejectionReason: string; timestamp: string }> {
+    return [...this.buffer];
+  }
+
+  /** 检查类似的编辑是否之前被拒绝过 */
+  wasRejectedBefore(target: string, type: TextEdit['type']): boolean {
+    return this.buffer.some(
+      (entry) => entry.edit.target === target && entry.edit.type === type
+    );
+  }
+
+  /** 清空缓冲区 */
+  clear(): void {
+    this.buffer = [];
+  }
+
+  get size(): number {
+    return this.buffer.length;
+  }
+}
+
+// 全局被拒绝编辑缓冲区
+const rejectedEditBuffer = new RejectedEditBuffer();
+
+// ============================================================================
+// v2.0 Optimization Rules (保留)
+// ============================================================================
+
 const REDUNDANCY_RULES: Array<{ pattern: RegExp; replacement: string }> = [
-  // "This skill allows you to" → 直接说做什么
   { pattern: /this skill (?:allows|enables|helps) (?:you )?to /gi, replacement: "" },
-  // "Use this when" → 条件简写
   { pattern: /use this (?:skill|tool) when /gi, replacement: "when " },
-  // "It can also" → 删除过渡词
   { pattern: /it can also /gi, replacement: "" },
-  // "provides the ability to" → 直接动词
   { pattern: /provides (?:the ability|capabilities) to /gi, replacement: "" },
-  // "automatically" → 通常冗余
   { pattern: /automatically /gi, replacement: "" },
-  // "comprehensive" → 冗余形容词
   { pattern: /comprehensive /gi, replacement: "" },
-  // "powerful" → 冗余形容词
   { pattern: /powerful /gi, replacement: "" },
-  // "seamlessly" → 冗余副词
   { pattern: /seamlessly /gi, replacement: "" },
-  // "intelligent" → 冗余
   { pattern: /intelligent /gi, replacement: "" },
-  // "advanced" → 冗余
   { pattern: /advanced /gi, replacement: "" },
-  // "robust" → 冗余
   { pattern: /robust /gi, replacement: "" },
-  // "efficient" → 冗余
   { pattern: /efficient /gi, replacement: "" },
-  // "including but not limited to" → 太长
   { pattern: /including but not limited to /gi, replacement: "incl. " },
-  // "in order to" → 简写
   { pattern: /in order to /gi, replacement: "to " },
-  // "as well as" → 简写
   { pattern: /as well as /gi, replacement: "& " },
-  // 末尾句号 → 描述不需要
   { pattern: /\.$/, replacement: "" },
 ];
 
-/** 估算 token 节省量 */
 function estimateTokensSaved(chars: number): number {
   return Math.ceil(chars / 4);
 }
 
-/** 应用冗余精简规则 */
 function applyRedundancyRules(description: string): string {
   let result = description;
   for (const { pattern, replacement } of REDUNDANCY_RULES) {
     result = result.replace(pattern, replacement);
   }
-  // 清理多余空格
   return result.replace(/\s+/g, " ").trim();
 }
 
-/** 压缩描述到目标字符数内 */
 function compressDescription(description: string, targetChars: number): string {
   if ([...description].length <= targetChars) return description;
 
-  // Step 1: 应用冗余规则
   let compressed = applyRedundancyRules(description);
   if ([...compressed].length <= targetChars) return compressed;
 
-  // Step 2: 保留核心动词短语（参考 suggestDescription）
   const suggested = suggestDescription({
     name: "",
     baseName: "",
@@ -117,15 +209,13 @@ function compressDescription(description: string, targetChars: number): string {
 
   if ([...suggested].length <= targetChars) return suggested;
 
-  // Step 3: 截断 + 省略号
   return [...compressed].slice(0, targetChars - 2).join("") + "…";
 }
 
 // ============================================================================
-// Public API
+// v2.0 Public API (保留)
 // ============================================================================
 
-/** 优化单个技能描述 */
 export function optimizeSkill(
   skill: Skill,
   targetChars: number = 40
@@ -146,11 +236,9 @@ export function optimizeSkill(
     };
   }
 
-  // 优先使用场景关键词建议
   const suggested = suggestDescription(skill);
   const suggestedChars = [...suggested].length;
 
-  // 如果建议仍然太长，进一步压缩
   const finalSuggested =
     suggestedChars > targetChars
       ? compressDescription(original, targetChars)
@@ -178,7 +266,6 @@ export function optimizeSkill(
   };
 }
 
-/** 批量优化所有技能 */
 export function optimizeAllSkills(
   skills: Skill[],
   targetChars: number = 40
@@ -197,4 +284,229 @@ export function optimizeAllSkills(
     ),
     results,
   };
+}
+
+// ============================================================================
+// v2.1 新增: 文本空间优化器
+// ============================================================================
+
+/**
+ * 应用有界编辑到技能文档
+ * 
+ * 核心机制：文本学习率约束每次最多lr个编辑操作
+ * 来源: arXiv:2605.23904
+ * 消融实验: 去掉学习率约束后SearchQA 87.1%→84.6%
+ */
+export function applyBoundedEdits(
+  skillContent: string,
+  edits: TextEdit[],
+  config: OptimizeConfigV2 = {}
+): { newContent: string; appliedEdits: TextEdit[]; skippedEdits: TextEdit[] } {
+  const cfg = { ...DEFAULT_OPTIMIZE_V2, ...config };
+  const lr = cfg.textualLearningRate;
+
+  // 按优先级排序: replace > add > delete
+  const priorityOrder: Record<TextEdit['type'], number> = { replace: 0, add: 1, delete: 2 };
+  const sorted = [...edits].sort((a, b) => priorityOrder[a.type] - priorityOrder[b.type]);
+
+  const appliedEdits: TextEdit[] = [];
+  const skippedEdits: TextEdit[] = [];
+  let content = skillContent;
+
+  for (const edit of sorted) {
+    if (appliedEdits.length >= lr) {
+      // 超过学习率限制，跳过
+      skippedEdits.push(edit);
+      continue;
+    }
+
+    // 检查被拒绝缓冲区中是否有类似编辑
+    if (rejectedEditBuffer.wasRejectedBefore(edit.target, edit.type)) {
+      skippedEdits.push(edit);
+      continue;
+    }
+
+    // 应用编辑
+    switch (edit.type) {
+      case 'add':
+        content = applyAddEdit(content, edit);
+        break;
+      case 'delete':
+        content = applyDeleteEdit(content, edit);
+        break;
+      case 'replace':
+        content = applyReplaceEdit(content, edit);
+        break;
+    }
+
+    appliedEdits.push(edit);
+  }
+
+  return { newContent: content, appliedEdits, skippedEdits };
+}
+
+/**
+ * 验证门控
+ * 
+ * 来源: arXiv:2605.23904
+ * 候选技能必须在验证集上严格提升才被接受
+ * 最佳运行全程只接受1-4次编辑
+ */
+export function validateGate(
+  currentScore: number,
+  candidateScore: number,
+  config: OptimizeConfigV2 = {}
+): GateResult {
+  const cfg = { ...DEFAULT_OPTIMIZE_V2, ...config };
+  const delta = candidateScore - currentScore;
+
+  let accepted: boolean;
+  let rejectionReason: string | undefined;
+
+  switch (cfg.gateMetric) {
+    case 'hard':
+      // 精确匹配准确率：必须严格提升
+      accepted = delta > 0;
+      if (!accepted && delta === 0) {
+        rejectionReason = 'Tie rejected: candidate does not strictly improve over current';
+      } else if (!accepted) {
+        rejectionReason = `Performance regression: ${delta.toFixed(1)}pp`;
+      }
+      break;
+    case 'soft':
+      // 部分分评分：允许小幅提升即可
+      accepted = delta >= 0.5;
+      if (!accepted) {
+        rejectionReason = `Insufficient improvement: ${delta.toFixed(2)}pp < 0.5pp threshold`;
+      }
+      break;
+    case 'mixed':
+      // 混合评分
+      accepted = delta > 0;
+      if (!accepted) {
+        rejectionReason = `Mixed metric regression: ${delta.toFixed(1)}pp`;
+      }
+      break;
+  }
+
+  return { accepted, currentScore, candidateScore, delta, rejectionReason };
+}
+
+/**
+ * 完整的优化循环 (Rollout → Reflect → Edit → Gate)
+ * 
+ * 来源: arXiv:2605.23904 (SkillOpt)
+ * 
+ * 这是SkillOpt核心循环的TypeScript移植版:
+ * 1. Rollout: 用当前技能执行任务，记录轨迹
+ * 2. Reflect: 分析成功/失败轨迹，提取差异
+ * 3. Edit: 生成有界编辑操作
+ * 4. Gate: 验证门控决定是否接受
+ */
+export async function runOptimizationCycle(
+  currentSkillContent: string,
+  edits: TextEdit[],
+  evaluateFn: (content: string) => Promise<number>,
+  config: OptimizeConfigV2 = {}
+): Promise<{
+  newContent: string;
+  appliedEdits: TextEdit[];
+  gateResult: GateResult;
+  cycleComplete: boolean;
+}> {
+  const cfg = { ...DEFAULT_OPTIMIZE_V2, ...config };
+
+  // Step 1 & 2: Rollout + Reflect (由外部提供edits)
+  // Step 3: Apply bounded edits
+  const { newContent, appliedEdits, skippedEdits } = applyBoundedEdits(
+    currentSkillContent,
+    edits,
+    cfg
+  );
+
+  if (appliedEdits.length === 0) {
+    return {
+      newContent: currentSkillContent,
+      appliedEdits: [],
+      gateResult: { accepted: false, currentScore: 0, candidateScore: 0, delta: 0, rejectionReason: 'No edits applied' },
+      cycleComplete: false,
+    };
+  }
+
+  // Step 4: Gate - evaluate candidate
+  if (cfg.enableGate && evaluateFn) {
+    const [currentScore, candidateScore] = await Promise.all([
+      evaluateFn(currentSkillContent),
+      evaluateFn(newContent),
+    ]);
+
+    const gateResult = validateGate(currentScore, candidateScore, cfg);
+
+    if (!gateResult.accepted) {
+      // 编辑被拒绝，加入缓冲区
+      for (const edit of appliedEdits) {
+        rejectedEditBuffer.add(edit, gateResult.rejectionReason ?? 'Gate rejected');
+      }
+      return {
+        newContent: currentSkillContent,  // 回滚
+        appliedEdits: [],
+        gateResult,
+        cycleComplete: true,
+      };
+    }
+  }
+
+  return {
+    newContent,
+    appliedEdits,
+    gateResult: { accepted: true, currentScore: 0, candidateScore: 0, delta: 0 },
+    cycleComplete: true,
+  };
+}
+
+/**
+ * 获取被拒绝编辑缓冲区（供API端点使用）
+ */
+export function getRejectedEditBuffer(): RejectedEditBuffer {
+  return rejectedEditBuffer;
+}
+
+// ============================================================================
+// 编辑操作的辅助函数
+// ============================================================================
+
+function applyAddEdit(content: string, edit: TextEdit): string {
+  // 在target描述的位置之后添加内容
+  const lines = content.split('\n');
+  const targetIndex = lines.findIndex((line) =>
+    line.toLowerCase().includes(edit.target.toLowerCase())
+  );
+
+  if (targetIndex >= 0) {
+    const newLines = edit.content.split('\n');
+    lines.splice(targetIndex + 1, 0, ...newLines);
+    return lines.join('\n');
+  }
+
+  // 找不到目标位置，追加到末尾
+  return content + '\n' + edit.content;
+}
+
+function applyDeleteEdit(content: string, edit: TextEdit): string {
+  const lines = content.split('\n');
+  const filtered = lines.filter((line) =>
+    !line.toLowerCase().includes(edit.target.toLowerCase())
+  );
+  return filtered.join('\n');
+}
+
+function applyReplaceEdit(content: string, edit: TextEdit): string {
+  const lines = content.split('\n');
+  const result = lines.map((line) => {
+    if (line.toLowerCase().includes(edit.target.toLowerCase())) {
+      return edit.content;
+    }
+    return line;
+  });
+  return result.join('\n');
 }

@@ -68,7 +68,7 @@ services:
     volumes:
       - ./packages/skills:/app/packages/skills:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/health"]
       interval: 30s
       timeout: 10s
       retries: 3

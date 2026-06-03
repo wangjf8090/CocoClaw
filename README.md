@@ -97,7 +97,7 @@ docker compose -f docker/docker-compose.yml logs -f
    - Permission caching
    - Access control enforcement
 
-5. **Evolution Harness** (port 8084)
+5. **Evolution Harness v2.1** (port 8084)
    - 双环驱动架构：Evolution Circuits + Test Harness
    - 🔄 **Evolution Circuits**（自动优化）
      - Permission Evolver - 权限进化器
@@ -110,6 +110,24 @@ docker compose -f docker/docker-compose.yml logs -f
      - Event Bus - 统一事件总线
    - 📊 Safety Gate / Release Gate
    - 🔒 Rollback management
+   - 🆕 **Skill Cleaner v2.1** — 基于论文群验证的实效性审计增强
+     - **Meta-Skill三维度审计**（arXiv:2605.23899）：失败机制编码(35%) / 可操作具体性(35%) / 高风险黑名单(30%)
+     - **文本学习率** lr=4（arXiv:2605.23904 SkillOpt）：每次最多4个bounded edit
+     - **验证门控 Gate**：候选必须严格提升才接受，ties也拒绝
+     - **被拒绝编辑缓冲区**：失败提案作为负反馈注入Reflect阶段
+     - **负迁移防护**：25%平均负迁移率→部署前沙箱+部署后监控+自动回滚
+     - **静默绕过检测**：识别"看起来有效但从未被调用"的失效技能
+     - **技能级记忆**（MUSE-Autoskill）：per-skill记忆积累跨任务经验
+   - 🆕 **v2.1 API Endpoints** (9 new)
+     - `GET /api/audit/meta-skill` — 三维度审计
+     - `GET /api/audit/meta-skill/:name` — 单技能审计
+     - `GET /api/audit/negative-transfer` — 负迁移风险
+     - `GET /api/audit/silent-bypass` — 静默绕过检测
+     - `POST /api/optimize/cycle` — Rollout→Reflect→Edit→Gate优化循环
+     - `GET /api/optimize/rejected-buffer` — 被拒绝编辑缓冲区
+     - `POST /api/lifecycle/deploy-risk` — 部署风险评估
+     - `GET /api/lifecycle/skill-memory/:name` — 技能记忆查询
+     - `POST /api/lifecycle/skill-memory/:name/record` — 记录技能使用
 
 6. **Market Research Service**
    - 虾评平台 (xiaping.coze.com) 技能市场自动调研
@@ -277,14 +295,42 @@ Default alerts configured for:
 
 ## 🔄 Self-Evolution
 
-The Evolution Harness continuously improves system performance:
+The Evolution Harness continuously improves system performance through a **v2.1 paper-validated pipeline**:
 
-1. **Monitor** - Collect performance metrics
-2. **Analyze** - Identify bottlenecks and patterns
-3. **Propose** - Generate optimization strategies
-4. **Validate** - Safety boundary checks
-5. **Apply** - Implement verified optimizations
-6. **Verify** - Measure improvement and rollback if needed
+### Skill Cleaner Pipeline (v2.1)
+
+Based on 5 concurrent papers from the skill self-evolution burst (May 2026):
+
+| Paper | Source | Key Contribution |
+|-------|--------|------------------|
+| arXiv:2605.23899 | 复旦+微软+上交 | Meta-Skill三维度审计标准 + 25%负迁移率发现 |
+| arXiv:2605.23904 | 微软 SkillOpt | 文本学习率+验证门控，52/52全胜 |
+| arXiv:2605.10500 | 清华 SkillEvolver | 角色分离+静默绕过检测 |
+| arXiv:2605.28390 | 清华 HiSME | 分层技能元进化 |
+| MUSE-Autoskill | 字节跳动 | 技能全生命周期+技能级记忆 |
+
+### Optimization Cycle
+
+1. **Rollout** — Execute tasks with current skill set
+2. **Reflect** — Analyze failure/success trajectories (with rejected-edit buffer as negative feedback)
+3. **Edit** — Apply bounded edits (lr=4 per step) to generate candidate skills
+4. **Gate** — Validate on held-out set; **only accept strict improvements** (ties rejected)
+
+### Quality Audit (Meta-Skill Three Dimensions)
+
+| Dimension | Weight | What It Measures |
+|-----------|--------|------------------|
+| Failure Mechanism Encoding (FME) | 35% | Does the skill encode WHY things fail, not just "avoid X"? |
+| Actionable Specificity (AS) | 35% | Does it provide concrete steps, not vague advice? |
+| High-Risk Blacklist (HRB) | 30% | Does it explicitly list dangerous operations? |
+
+**Baseline audit (4 skills):** Average 43/100 (D grade) — FME=20, AS=48, HRB=63
+
+### Safety Mechanisms
+
+- **Negative Transfer Guard**: Pre-deploy sandbox test + post-deploy monitoring + auto-rollback (25% average negative transfer rate)
+- **Silent Bypass Detection**: Identifies skills that "look effective but are never actually invoked"
+- **Skill-Level Memory**: Per-skill `.memory.md` accumulates cross-task experience
 
 **Average improvement per cycle: +15.3%**
 

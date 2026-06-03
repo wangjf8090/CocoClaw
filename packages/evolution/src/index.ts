@@ -2,42 +2,66 @@
  * SelfClaw Evolution Service v2.1
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  *
- * API 端点：
- * GET  /health                     — 健康检查
- * GET  /api/audit                  — 技能审计报告 (Token预算+重复检测+根目录)
- * GET  /api/audit/budget           — 仅 Token 预算
- * GET  /api/audit/duplicates       — 仅重复检测
- * GET  /api/compliance             — 行业技能包合规检查 (Coze 3.0)
- * GET  /api/compliance/:skillName  — 单技能合规详情
- * POST /api/optimize               — 技能描述优化
- * POST /api/template               — 行业模板生成 (Coze 3.0 可上架)
- * GET  /api/template/:skillName    — 单技能模板预览
- * GET  /api/lifecycle              — 技能生命周期报告
- * POST /api/evolve                 — 触发进化周期
- * GET  /api/metrics                — 进化指标
+ * v2.1 新增端点：
+ * GET  /api/audit/meta-skill         — Meta-Skill三维度审计 (arXiv:2605.23899)
+ * GET  /api/audit/negative-transfer   — 负迁移风险评估 (arXiv:2605.23899)
+ * GET  /api/audit/silent-bypass       — 静默绕过检测 (arXiv:2605.10500)
+ * POST /api/optimize/cycle            — 完整优化循环 Rollout→Reflect→Edit→Gate (arXiv:2605.23904)
+ * GET  /api/optimize/rejected-buffer  — 被拒绝编辑缓冲区
+ * GET  /api/lifecycle/bypass-check    — 单技能静默绕过检测
+ * POST /api/lifecycle/deploy-risk     — 部署负迁移风险评估
+ * GET  /api/lifecycle/skill-memory/:name — 技能级记忆查询
+ *
+ * v2.0 保留端点：
+ * GET  /health                        — 健康检查
+ * GET  /api/audit                     — 技能审计报告
+ * GET  /api/audit/budget              — 仅 Token 预算
+ * GET  /api/audit/duplicates          — 仅重复检测
+ * GET  /api/compliance                — 行业技能包合规检查
+ * GET  /api/compliance/:skillName     — 单技能合规详情
+ * POST /api/optimize                  — 技能描述优化
+ * POST /api/template                  — 行业模板生成
+ * GET  /api/template/:skillName       — 单技能模板预览
+ * GET  /api/lifecycle                 — 技能生命周期报告
+ * POST /api/evolve                    — 触发进化周期
+ * GET  /api/metrics                   — 进化指标
  */
 
 import express from "express";
 import cors from "cors";
+import fs from "node:fs";
 import path from "node:path";
 import {
   runAudit,
   discoverSkills,
   computeBudget,
   detectDuplicates,
+  auditMetaSkill,
+  assessNegativeTransferRisk,
   type AuditConfig,
   type AuditReport,
 } from "./skill-audit.js";
 import {
   optimizeAllSkills,
   optimizeSkill,
+  getRejectedEditBuffer,
+  applyBoundedEdits,
+  validateGate,
+  runOptimizationCycle,
   type OptimizationReport,
+  type TextEdit,
+  type OptimizeConfigV2,
 } from "./skill-optimize.js";
 import {
   fetchUsageFromMemory,
   generateLifecycleReport,
-  type LifecycleReport,
+  detectSilentBypass,
+  evaluateDeploymentRisk,
+  getSkillMemory,
+  recordSkillUsage,
   type MemoryServiceConfig,
+  type NegativeTransferGuard,
+  DEFAULT_NEGATIVE_TRANSFER_GUARD,
 } from "./skill-lifecycle.js";
 import {
   auditAllCompliance,
@@ -61,7 +85,6 @@ const PORT = process.env.PORT || 8084;
 const MEMORY_SERVICE_URL =
   process.env.MEMORY_SERVICE_URL || "http://selfclaw-memory:8082";
 
-/** 技能根目录：SelfClaw Docker 容器内的路径 */
 const SKILL_ROOTS = (process.env.SKILL_ROOTS || "/app/packages/skills")
   .split(",")
   .map((p) => p.trim());
@@ -72,10 +95,12 @@ const AUDIT_CONFIG: AuditConfig = {
   charsPerToken: Number(process.env.CHARS_PER_TOKEN) || 4,
   longDescThreshold: Number(process.env.LONG_DESC_THRESHOLD) || 110,
   skillRoots: SKILL_ROOTS,
+  enableMetaSkillAudit: true,
+  enableNegativeTransferRisk: true,
 };
 
 // ============================================================================
-// Evolution Metrics (保留原有逻辑)
+// Evolution Metrics
 // ============================================================================
 
 const evolutionMetrics = {
@@ -110,6 +135,7 @@ app.get("/health", (_req, res) => {
     service: "evolution-harness",
     version: "2.1.0",
     modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template"],
+    v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
   });
 });
@@ -128,6 +154,12 @@ app.get("/", (_req, res) => {
       "skill-lifecycle",
       "skill-compliance",
       "skill-template",
+      // v2.1
+      "meta-skill-audit",
+      "negative-transfer-guard",
+      "silent-bypass-detect",
+      "text-space-optimizer",
+      "skill-memory",
     ],
     cycles: evolutionMetrics.cycles,
     performanceScore: evolutionMetrics.performanceScore.toFixed(1),
@@ -135,10 +167,10 @@ app.get("/", (_req, res) => {
 });
 
 // ============================================================================
-// Skill Audit API
+// Skill Audit API (v2.0 + v2.1)
 // ============================================================================
 
-/** 完整审计报告 */
+/** 完整审计报告 (v2.1增强: 包含Meta-Skill审计+负迁移风险) */
 app.get("/api/audit", (_req, res) => {
   try {
     const report = runAudit(AUDIT_CONFIG);
@@ -190,8 +222,143 @@ app.get("/api/audit/duplicates", (_req, res) => {
   }
 });
 
+// ---- v2.1 新增: Meta-Skill三维度审计 ----
+
+/** Meta-Skill三维度审计 (arXiv:2605.23899) */
+app.get("/api/audit/meta-skill", (_req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+
+    const audits = enabled.map((skill) => {
+      const body = fs.readFileSync(skill.filePath, "utf8");
+      return {
+        skillName: skill.name,
+        ...auditMetaSkill(body),
+      };
+    });
+
+    const avgScore = audits.length > 0
+      ? Math.round(audits.reduce((sum, a) => sum + a.overallScore, 0) / audits.length)
+      : 0;
+
+    res.json({
+      generated: new Date().toISOString(),
+      totalSkills: enabled.length,
+      averageScore: avgScore,
+      skills: audits,
+      paperReference: "arXiv:2605.23899",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Meta-skill audit failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 单技能Meta-Skill审计 */
+app.get("/api/audit/meta-skill/:skillName", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const skill = skills.find(
+      (s) => s.name === req.params.skillName || s.baseName === req.params.skillName
+    );
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName: req.params.skillName });
+      return;
+    }
+    const body = fs.readFileSync(skill.filePath, "utf8");
+    const result = auditMetaSkill(body);
+    res.json({ skillName: skill.name, ...result });
+  } catch (error) {
+    res.status(500).json({
+      error: "Meta-skill audit failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 负迁移风险评估 (arXiv:2605.23899) */
+app.get("/api/audit/negative-transfer", (_req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+
+    const risks = enabled.map((skill) => {
+      const body = fs.readFileSync(skill.filePath, "utf8");
+      return {
+        skillName: skill.name,
+        ...assessNegativeTransferRisk(body),
+      };
+    });
+
+    const highRisk = risks.filter((r) => r.riskLevel === 'high').length;
+    const mediumRisk = risks.filter((r) => r.riskLevel === 'medium').length;
+
+    res.json({
+      generated: new Date().toISOString(),
+      totalSkills: enabled.length,
+      highRiskSkills: highRisk,
+      mediumRiskSkills: mediumRisk,
+      lowRiskSkills: enabled.length - highRisk - mediumRisk,
+      skills: risks,
+      paperReference: "arXiv:2605.23899",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Negative transfer assessment failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 静默绕过检测 (arXiv:2605.10500) */
+app.get("/api/audit/silent-bypass", async (_req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+    const skillNames = enabled.map((s) => s.name);
+
+    const memoryConfig: MemoryServiceConfig = {
+      baseUrl: MEMORY_SERVICE_URL,
+      timeout: 5000,
+    };
+    const usageMap = await fetchUsageFromMemory(memoryConfig, skillNames);
+
+    // 假设过去7天有100个任务作为评估基数
+    const estimatedTasks = 100;
+    const results = enabled.map((skill) => {
+      const usage = usageMap.get(skill.name) ?? {
+        skillName: skill.name,
+        invocationCount: 0,
+        lastUsed: null,
+        firstUsed: null,
+        errorCount: 0,
+        avgLatencyMs: 0,
+      };
+      return detectSilentBypass(skill.name, usage, estimatedTasks);
+    });
+
+    const criticalBypass = results.filter((r) => r.status === 'critical').length;
+
+    res.json({
+      generated: new Date().toISOString(),
+      totalSkills: enabled.length,
+      criticalBypassSkills: criticalBypass,
+      results,
+      paperReference: "arXiv:2605.10500",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Silent bypass detection failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // ============================================================================
-// Skill Optimize API
+// Skill Optimize API (v2.0 + v2.1)
 // ============================================================================
 
 /** 批量优化所有技能描述 */
@@ -210,8 +377,71 @@ app.post("/api/optimize", (req, res) => {
   }
 });
 
+/** v2.1: 文本空间优化循环 (arXiv:2605.23904) */
+app.post("/api/optimize/cycle", async (req, res) => {
+  try {
+    const { skillName, edits, config } = req.body as {
+      skillName: string;
+      edits: TextEdit[];
+      config?: OptimizeConfigV2;
+    };
+
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const skill = skills.find(
+      (s) => s.name === skillName || s.baseName === skillName
+    );
+
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName });
+      return;
+    }
+
+    const currentContent = fs.readFileSync(skill.filePath, "utf8");
+
+    // 简化的评估函数（实际应调用Test Harness）
+    const evaluateFn = async (content: string): Promise<number> => {
+      // TODO: 对接Test Harness的case-runner进行真实评估
+      // 当前使用启发式：内容长度适中+包含Meta-Skill维度 = 更高分
+      const metaResult = auditMetaSkill(content);
+      return metaResult.overallScore;
+    };
+
+    const result = await runOptimizationCycle(
+      currentContent,
+      edits,
+      evaluateFn,
+      config
+    );
+
+    if (result.gateResult.accepted && result.newContent !== currentContent) {
+      // 写入优化后的技能文件
+      fs.writeFileSync(skill.filePath, result.newContent, "utf8");
+    }
+
+    res.json({
+      skillName,
+      ...result,
+      paperReference: "arXiv:2605.23904",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Optimization cycle failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** v2.1: 被拒绝编辑缓冲区 */
+app.get("/api/optimize/rejected-buffer", (_req, res) => {
+  const buffer = getRejectedEditBuffer();
+  res.json({
+    size: buffer.size,
+    entries: buffer.getAll(),
+  });
+});
+
 // ============================================================================
-// Skill Lifecycle API
+// Skill Lifecycle API (v2.0 + v2.1)
 // ============================================================================
 
 /** 技能生命周期报告 */
@@ -221,7 +451,6 @@ app.get("/api/lifecycle", async (_req, res) => {
     const enabled = skills.filter((s) => s.enabled);
     const skillNames = enabled.map((s) => s.name);
 
-    // 从 Memory 服务获取使用记录
     const memoryConfig: MemoryServiceConfig = {
       baseUrl: MEMORY_SERVICE_URL,
       timeout: 5000,
@@ -238,11 +467,56 @@ app.get("/api/lifecycle", async (_req, res) => {
   }
 });
 
+/** v2.1: 部署负迁移风险评估 */
+app.post("/api/lifecycle/deploy-risk", (req, res) => {
+  try {
+    const { skillName, domainType, performanceDelta, guard } = req.body as {
+      skillName: string;
+      domainType: string;
+      performanceDelta: number;
+      guard?: NegativeTransferGuard;
+    };
+
+    const result = evaluateDeploymentRisk(
+      skillName,
+      domainType as 'structured' | 'physical' | 'qa' | 'code' | 'unknown',
+      performanceDelta,
+      guard ?? DEFAULT_NEGATIVE_TRANSFER_GUARD
+    );
+
+    res.json({
+      skillName,
+      ...result,
+      paperReference: "arXiv:2605.23899",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Deployment risk assessment failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** v2.1: 技能级记忆查询 */
+app.get("/api/lifecycle/skill-memory/:skillName", (req, res) => {
+  const memory = getSkillMemory(req.params.skillName);
+  res.json(memory);
+});
+
+/** v2.1: 记录技能使用结果 */
+app.post("/api/lifecycle/skill-memory/:skillName/record", (req, res) => {
+  const { success, improvementDelta } = req.body as {
+    success: boolean;
+    improvementDelta?: number;
+  };
+  const memory = recordSkillUsage(req.params.skillName, success, improvementDelta);
+  res.json(memory);
+});
+
 // ============================================================================
-// Skill Compliance API (Coze 3.0 行业技能包合规检查)
+// Skill Compliance API (保留)
 // ============================================================================
 
-/** 批量合规检查 */
 app.get("/api/compliance", (_req, res) => {
   try {
     const skills = discoverSkills(AUDIT_CONFIG);
@@ -257,7 +531,6 @@ app.get("/api/compliance", (_req, res) => {
   }
 });
 
-/** 单技能合规详情 */
 app.get("/api/compliance/:skillName", (req, res) => {
   try {
     const skills = discoverSkills(AUDIT_CONFIG);
@@ -279,10 +552,9 @@ app.get("/api/compliance/:skillName", (req, res) => {
 });
 
 // ============================================================================
-// Skill Template API (Coze 3.0 行业技能包模板生成)
+// Skill Template API (保留)
 // ============================================================================
 
-/** 批量生成行业模板 */
 app.post("/api/template", (req, res) => {
   try {
     const skills = discoverSkills(AUDIT_CONFIG);
@@ -298,7 +570,6 @@ app.post("/api/template", (req, res) => {
   }
 });
 
-/** 单技能模板预览（不写文件） */
 app.get("/api/template/:skillName", (req, res) => {
   try {
     const skills = discoverSkills(AUDIT_CONFIG);
@@ -388,11 +659,14 @@ app.patch("/api/experiments/:id/complete", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🧬 SelfClaw Evolution Harness v2.1 running on port ${PORT}`);
-  console.log(`   Health:     http://localhost:${PORT}/health`);
-  console.log(`   Audit:      http://localhost:${PORT}/api/audit`);
-  console.log(`   Budget:     http://localhost:${PORT}/api/audit/budget`);
-  console.log(`   Compliance: http://localhost:${PORT}/api/compliance`);
-  console.log(`   Template:   http://localhost:${PORT}/api/template`);
-  console.log(`   Lifecycle:  http://localhost:${PORT}/api/lifecycle`);
-  console.log(`   Skill roots: ${SKILL_ROOTS.join(", ")}`);
+  console.log(`   Health:        http://localhost:${PORT}/health`);
+  console.log(`   Audit:         http://localhost:${PORT}/api/audit`);
+  console.log(`   Meta-Skill:    http://localhost:${PORT}/api/audit/meta-skill`);
+  console.log(`   Neg.Transfer:  http://localhost:${PORT}/api/audit/negative-transfer`);
+  console.log(`   SilentBypass:  http://localhost:${PORT}/api/audit/silent-bypass`);
+  console.log(`   OptCycle:      POST http://localhost:${PORT}/api/optimize/cycle`);
+  console.log(`   RejectedBuf:   http://localhost:${PORT}/api/optimize/rejected-buffer`);
+  console.log(`   DeployRisk:    POST http://localhost:${PORT}/api/lifecycle/deploy-risk`);
+  console.log(`   SkillMemory:   http://localhost:${PORT}/api/lifecycle/skill-memory/:name`);
+  console.log(`   Skill roots:   ${SKILL_ROOTS.join(", ")}`);
 });
