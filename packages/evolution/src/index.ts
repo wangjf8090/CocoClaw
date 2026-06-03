@@ -75,7 +75,7 @@ import {
   type TrainingState,
   type MetaSkill,
   type PipelineOutput,
-  type Task,
+  type Task as PipelineTask,
 } from "./skill-pipeline.js";
 import {
   fetchUsageFromMemory,
@@ -101,7 +101,18 @@ import {
   type TemplateReport,
   type TemplateResult,
 } from "./skill-template.js";
-
+import {
+  createPlan,
+  executePlan,
+  verifyResult,
+  orchestrate,
+  serializeResult,
+  type OrchestratorConfig,
+  type Task as OrchestratorTask,
+  type Plan as OrchestratorPlan,
+  type OrchestrationResult,
+  DEFAULT_ORCHESTRATOR_CONFIG as DEFAULT_ORCHESTRATOR_DEFAULT,
+} from "./skill-orchestrator.js";
 // ============================================================================
 // Config
 // ============================================================================
@@ -122,6 +133,14 @@ const AUDIT_CONFIG: AuditConfig = {
   skillRoots: SKILL_ROOTS,
   enableMetaSkillAudit: true,
   enableNegativeTransferRisk: true,
+};
+
+const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
+  globalTimeout: Number(process.env.ORCHESTRATE_GLOBAL_TIMEOUT) || 120_000,
+  taskTimeout: Number(process.env.ORCHESTRATE_TASK_TIMEOUT) || 30_000,
+  maxRetries: Number(process.env.ORCHESTRATE_MAX_RETRIES) || 1,
+  maxParallelism: Number(process.env.ORCHESTRATE_MAX_PARALLELISM) || 4,
+  verifyThreshold: Number(process.env.ORCHESTRATE_VERIFY_THRESHOLD) || 0.7,
 };
 
 // ============================================================================
@@ -158,8 +177,8 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "2.1.0",
-    modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template"],
+    version: "3.0.0",
+    modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
   });
@@ -638,7 +657,7 @@ app.post("/api/pipeline/train", async (req, res) => {
     const { skillName, config, tasks } = req.body as {
       skillName?: string;
       config?: Partial<PipelineConfig>;
-      tasks?: Task[];
+      tasks?: PipelineTask[];
     };
 
     // 获取技能内容
@@ -990,6 +1009,80 @@ app.get("/api/pipeline/best-skill", (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: "Failed to read best skill",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ============================================================================
+// Skill Orchestrator API (Plan→Execute→Verify 编排)
+// ============================================================================
+
+/** 完整编排：Plan→Execute→Verify */
+app.post("/api/orchestrate", async (req, res) => {
+  try {
+    const { goal, tasks, constraints, config } = req.body as {
+      goal: string;
+      tasks: Array<Omit<OrchestratorTask, "status" | "retryCount" | "output" | "error" | "duration">>;
+      constraints?: string[];
+      config?: Partial<OrchestratorConfig>;
+    };
+
+    if (!goal || !tasks || !Array.isArray(tasks)) {
+      res.status(400).json({
+        error: "Missing required fields",
+        message: "需要 goal (string) 和 tasks (array) 参数",
+      });
+      return;
+    }
+
+    const mergedConfig: OrchestratorConfig = { ...DEFAULT_ORCHESTRATOR_DEFAULT, ...config };
+    const result = await orchestrate(goal, tasks, constraints ?? [], mergedConfig);
+    res.json(serializeResult(result));
+  } catch (error) {
+    res.status(500).json({
+      error: "Orchestration failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/** 仅 Plan 阶段（不执行） */
+app.post("/api/orchestrate/plan", (req, res) => {
+  try {
+    const { goal, tasks, constraints } = req.body as {
+      goal: string;
+      tasks: Array<Omit<OrchestratorTask, "status" | "retryCount" | "output" | "error" | "duration">>;
+      constraints?: string[];
+    };
+
+    if (!goal || !tasks || !Array.isArray(tasks)) {
+      res.status(400).json({
+        error: "Missing required fields",
+        message: "需要 goal (string) 和 tasks (array) 参数",
+      });
+      return;
+    }
+
+    const plan = createPlan(goal, tasks, constraints ?? []);
+    res.json({
+      goal: plan.goal,
+      constraints: plan.constraints,
+      taskCount: plan.tasks.length,
+      executionOrder: plan.executionOrder,
+      parallelGroups: plan.parallelGroups,
+      tasks: plan.tasks.map(t => ({
+        id: t.id,
+        name: t.name,
+        type: t.type,
+        description: t.description,
+        dependencies: t.dependencies,
+      })),
+      createdAt: plan.createdAt,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Plan creation failed",
       message: error instanceof Error ? error.message : String(error),
     });
   }
