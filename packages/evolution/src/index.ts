@@ -1,9 +1,13 @@
 /**
- * SelfClaw Evolution Service v3.0
+ * SelfClaw Evolution Service v3.1
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  * + SkillOpt Pipeline (arXiv:2605.23904)
  *
- * v3.0 新增端点 (SkillOpt 6阶段Pipeline):
+ * v3.1 新增端点 (Microsoft SKILL Pattern - BUILD 2026):
+ * POST /api/skill-pattern         — 批量生成 6 章节 SKILL Pattern
+ * GET  /api/skill-pattern/:name  — 预览单技能 SKILL Pattern
+ * POST /api/skill-pattern/generate — 生成 SKILL.pattern.md 文件
+ *
  * POST /api/pipeline/train        — 启动完整训练循环
  * GET  /api/pipeline/status       — 查询训练状态
  * POST /api/pipeline/stop         — 停止训练
@@ -177,7 +181,7 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "3.0.0",
+    version: "3.1.0",
     modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
@@ -637,6 +641,124 @@ app.get("/api/template/:skillName", (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: "Template preview failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ============================================================================
+// Microsoft SKILL Pattern API (v2.2 新增 - BUILD 2026)
+// ============================================================================
+
+import {
+  generateSKILLPattern,
+  wrapAllSkillsForSKILLPattern,
+  wrapSkillForSKILLPattern,
+  previewSKILLPattern,
+  type SKILLPatternFormat,
+} from "./skill-template.js";
+
+/**
+ * POST /api/skill-pattern — 批量生成 Microsoft SKILL Pattern（6章节格式）
+ *
+ * Body: {
+ *   outputDir?: string;        // 输出目录
+ *   patternData?: Partial<SKILLPatternFormat>; // 可选的完整pattern数据
+ * }
+ *
+ * 生成 SKILL.pattern.md，包含6章节：Scope/Idioms/Patterns/Fixtures/Anti-Patterns/Heuristics
+ */
+app.post("/api/skill-pattern", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const enabled = skills.filter((s) => s.enabled);
+    const { outputDir, patternData } = req.body as {
+      outputDir?: string;
+      patternData?: Partial<SKILLPatternFormat>;
+    };
+    const report = wrapAllSkillsForSKILLPattern(enabled, patternData, outputDir);
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: "SKILL Pattern generation failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/skill-pattern/:skillName — 预览单技能 SKILL Pattern（不写文件）
+ */
+app.get("/api/skill-pattern/:skillName", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const skill = skills.find(
+      (s) => s.name === req.params.skillName || s.baseName === req.params.skillName
+    );
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName: req.params.skillName });
+      return;
+    }
+    const { patternData } = req.query as { patternData?: string };
+    let parsedPattern: Partial<SKILLPatternFormat> | undefined;
+    if (patternData) {
+      try {
+        parsedPattern = JSON.parse(patternData);
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+    const content = previewSKILLPattern(skill, parsedPattern);
+    res.json({
+      skillName: skill.baseName,
+      industry: skill.scope,
+      content,
+      sections: [
+        "1. Scope（范围）",
+        "2. Idioms（惯用表达）",
+        "3. Patterns（正确模式）",
+        "4. Fixtures（测试夹具）",
+        "5. Anti-Patterns（反模式）",
+        "6. Heuristics（启发式规则）",
+      ],
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "SKILL Pattern preview failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/skill-pattern/generate — 为指定技能生成 SKILL Pattern（写文件）
+ *
+ * Body: {
+ *   skillName: string;
+ *   patternData: Partial<SKILLPatternFormat>; // 完整的6章节数据
+ *   outputDir?: string;
+ * }
+ */
+app.post("/api/skill-pattern/generate", (req, res) => {
+  try {
+    const skills = discoverSkills(AUDIT_CONFIG);
+    const { skillName, patternData, outputDir } = req.body as {
+      skillName: string;
+      patternData: Partial<SKILLPatternFormat>;
+      outputDir?: string;
+    };
+    const skill = skills.find(
+      (s) => s.name === skillName || s.baseName === skillName
+    );
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found", skillName });
+      return;
+    }
+    const result = wrapSkillForSKILLPattern(skill, patternData, outputDir);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: "SKILL Pattern generation failed",
       message: error instanceof Error ? error.message : String(error),
     });
   }

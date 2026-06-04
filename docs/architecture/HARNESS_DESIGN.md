@@ -1,5 +1,10 @@
 # Self-Evolution Harness 设计文档
 
+> **理论锚点**：Pydantic Logfire 于 2026 年 6 月发布 "The Harness Thesis"，提出：
+> **"Harness 是让 Agent 对人类可理解、可传递、可持久化的外层系统。"**
+> 长期 Agent 依赖 harness 超过依赖任何单一模型（Harness > Model）。
+> 这与 SelfClaw Evolution 的核心定位高度一致——SelfClaw 是首个将 Harness Engineering 落地为可执行系统的开源实现。
+
 ## 概述
 
 Self-Evolution Harness（自我进化编排层）是 SelfClaw 的核心创新，也是业界首个具备自我进化能力的 LLM 编排系统。
@@ -14,6 +19,17 @@ v2.1 新增两个核心模块，对标 Coze 3.0 行业技能包生态：
 
 4. **技能合规检查 (SkillCompliance)** - 检查 SKILL.md 是否符合上架规范
 5. **行业模板生成 (SkillTemplate)** - 自动生成 Coze 3.0 可上架的技能包结构
+
+### Pydantic Harness Thesis 四支柱 × Evolution 6 模块
+
+| Pydantic 四大支柱 | SelfClaw Evolution 模块 | 成熟度 |
+|---|---|---|
+| **Durable Context** | skill-audit（Token预算） + memory | ✅ 稳定 |
+| **Runtime Control** | skill-orchestrator v3.0（Plan→Execute→Verify） | ✅ 稳定 |
+| **End-to-End Observability** | skill-compliance（合规检查） | ✅ 稳定 |
+| **Evaluation & Governance** | skill-optimize（描述精简） | ✅ 稳定 |
+
+来源：[Pydantic The Harness Thesis](https://pydantic.dev/articles/the-harness-thesis)
 
 ## 核心架构
 
