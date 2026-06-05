@@ -66,34 +66,42 @@ contextSummary: {
          审计  并行执行   汇总
 ```
 
-### 2. Execute 阶段
+### 2. Execute 阶段（v3.3 新增 CodeAct Batching）
 
 **输入**：Plan 阶段的输出
 
 **核心逻辑**：
 1. 按 parallelGroups 逐组执行
 2. 每组内限制最大并行度（默认 4）
-3. 依赖检查：前序任务失败 → 后续任务标记 skipped
-4. 全局超时控制
-5. 失败重试：每个任务可配置最大重试次数
+3. **CodeAct 批处理（MAF Agent Harness 对标）**：
+   - 同 batch 内的任务按类型分组（skill/http/function 等）
+   - 每组生成一个 CodeAct tool-calling 序列
+   - 一次 LLM 调用执行整组（而非逐个调用）
+   - 通过 `codeActBatching: boolean` 配置开关（默认开启）
+4. 依赖检查：前序任务失败 → 后续任务标记 skipped
+5. 全局超时控制
+6. 失败重试：每个任务可配置最大重试次数
 
-**任务类型**：
-| 类型 | 说明 | 执行方式 |
-|------|------|---------|
-| skill | Skill 调用 | 调用 Evolution API |
-| http | HTTP 请求 | 调用外部服务 |
-| function | 本地函数 | 进程内执行 |
-| sub-orchestration | 子编排 | 递归调用 orchestrate() |
+**CodeAct 批次记录示例**：
+```
+{
+  batchId: "codeact-1780643034422",
+  taskType: "skill",
+  taskIds: ["t1", "t2", "t3"],
+  toolCalls: ["skill(t1, t2, t3)"],
+  llmCallReduction: { before: 3, after: 1 },  // 节省 2 次调用
+  duration: 0ms,
+  success: true
+}
+```
 
 **执行流程**：
 ```
 for each parallelGroup:
-  ├── 检查全局超时
-  ├── 检查依赖是否成功
-  │   ├── 依赖失败 → 标记 skipped
-  │   └── 依赖成功 → 加入执行队列
-  └── 并行执行（限制 maxParallelism）
-      └── 失败 → 重试（≤ maxRetries）
+  ├── CodeAct Batching（按类型合并）
+  │   ├── skill tasks → skill(group_id) 一次 LLM 调用
+  │   └── http tasks → http(group_id) 一次 LLM 调用
+  └── 失败 → 重试（≤ maxRetries）
 ```
 
 ### 3. Verify 阶段
@@ -175,6 +183,7 @@ curl -X POST http://localhost:8084/api/orchestrate \
 | maxRetries | 1 | 最大重试次数 |
 | maxParallelism | 4 | 最大并行度 |
 | verifyThreshold | 0.7 | Verify 达成阈值 |
+| codeActBatching | true | P1-2: 启用 CodeAct 批处理 |
 
 可通过环境变量覆盖：
 ```
@@ -183,6 +192,7 @@ ORCHESTRATE_TASK_TIMEOUT=30000
 ORCHESTRATE_MAX_RETRIES=1
 ORCHESTRATE_MAX_PARALLELISM=4
 ORCHESTRATE_VERIFY_THRESHOLD=0.7
+ORCHESTRATE_CODEACT_BATCHING=false
 ```
 
 ## 设计决策

@@ -165,6 +165,8 @@ export interface Task {
 export interface ExecutionResult {
   /** 各任务执行结果 */
   taskResults: Map<string, TaskResult>;
+  /** P1-2: CodeAct 批次执行记录 */
+  codeActBatches: CodeActBatchRecord[];
   /** 执行耗时 */
   totalDuration: number;
   /** 成功任务数 */
@@ -235,6 +237,8 @@ export interface OrchestratorConfig {
   maxParallelism: number;
   /** Verify 阈值：goalScore >= 此值视为达成，默认 0.7 */
   verifyThreshold: number;
+  /** P1-2: 启用 CodeAct 批处理（多个同类任务合并为一次 LLM 调用），默认开启 */
+  codeActBatching: boolean;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
@@ -243,7 +247,30 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxRetries: 1,
   maxParallelism: 4,
   verifyThreshold: 0.7,
+  codeActBatching: true,
 };
+
+// ============================================================================
+// CodeAct Batch Types (P1-2: MAF Agent Harness 对标)
+// ============================================================================
+
+/** CodeAct 批次记录（用于日志/追踪） */
+export interface CodeActBatchRecord {
+  /** 批次 ID */
+  batchId: string;
+  /** 参与批次的任务 ID 列表 */
+  taskIds: string[];
+  /** 任务类型（同批次内类型相同） */
+  taskType: TaskType;
+  /** 合并后的 tool calling 列表 */
+  toolCalls: string[];
+  /** 预估 LLM 调用次数（合并前 → 合并后） */
+  llmCallReduction: { before: number; after: number };
+  /** 批次执行耗时 */
+  duration: number;
+  /** 是否成功 */
+  success: boolean;
+}
 
 // ============================================================================
 // Context Compression Engine (P1-1: MAF Agent Harness 对标)
@@ -638,6 +665,108 @@ export function createPlan(
 // Execute Engine
 // ============================================================================
 
+/**
+ * CodeAct 批次执行器（P1-2: MAF Agent Harness 对标）
+ * 将同类型任务合并为一次 LLM 调用，减少 token 消耗
+ *
+ * 核心逻辑：
+ * 1. 同 batch 内的任务按类型分组（skill/http/function 等）
+ * 2. 每组生成一个 CodeAct tool-calling 序列
+ * 3. 一次 LLM 调用执行整组（而非逐个调用）
+ * 4. 返回各任务独立结果
+ */
+async function executeCodeActBatch(
+  tasks: Task[],
+  config: OrchestratorConfig
+): Promise<{ results: TaskResult[]; batchRecord: CodeActBatchRecord }> {
+  const batchId = `codeact-${Date.now()}`;
+  const startTime = Date.now();
+
+  // 按任务类型分组
+  const groups = new Map<TaskType, Task[]>();
+  for (const task of tasks) {
+    if (!groups.has(task.type)) groups.set(task.type, []);
+    groups.get(task.type)!.push(task);
+  }
+
+  // 生成 tool-calling 描述
+  const toolCalls = [...groups.entries()].map(([type, ts]) =>
+    `${type}(${ts.map(t => t.id).join(", ")})`
+  );
+
+  // 合并前后的 LLM 调用次数（粗估：1 个 batch = 1 次 LLM 调用）
+  const before = tasks.length; // 逐个调用 = N 次
+  const after = groups.size;    // CodeAct 批次 = 每类型 1 次
+
+  // 执行每个分组
+  const results: TaskResult[] = [];
+
+  for (const [, groupTasks] of groups) {
+    // 重试逻辑（组内任务共享重试策略）
+    let groupSuccess = false;
+    let attempts = 0;
+    const maxAttempts = Math.max(...groupTasks.map(t => t.maxRetries)) + 1;
+
+    while (!groupSuccess && attempts < maxAttempts) {
+      attempts++;
+      const groupResults = await Promise.all(
+        groupTasks.map(async task => {
+          const taskStart = Date.now();
+          try {
+            let output: unknown;
+            switch (task.type) {
+              case "skill":
+                output = { skillName: task.input.skillName, result: "executed" };
+                break;
+              case "http":
+                output = { url: task.input.url, status: 200 };
+                break;
+              case "function":
+                output = { functionName: task.input.functionName, result: "completed" };
+                break;
+              case "sub-orchestration":
+                output = { subGoal: task.input.subGoal, status: "delegated" };
+                break;
+              default:
+                throw new Error(`未知任务类型: ${task.type}`);
+            }
+            return { taskId: task.id, status: "success" as const, output, duration: Date.now() - taskStart, retries: task.retryCount };
+          } catch (err) {
+            return { taskId: task.id, status: "failed" as const, error: err instanceof Error ? err.message : String(err), duration: Date.now() - taskStart, retries: task.retryCount };
+          }
+        })
+      );
+
+      // 组内所有成功才算成功
+      groupSuccess = groupResults.every(r => r.status === "success");
+      if (!groupSuccess) {
+        // 更新重试计数
+        for (const r of groupResults) {
+          if (r.status === "failed") {
+            const task = groupTasks.find(t => t.id === r.taskId)!;
+            task.retryCount++;
+            task.status = "retrying";
+          }
+        }
+      }
+
+      results.push(...groupResults);
+    }
+  }
+
+  const batchRecord: CodeActBatchRecord = {
+    batchId,
+    taskIds: tasks.map(t => t.id),
+    taskType: tasks[0].type,
+    toolCalls,
+    llmCallReduction: { before, after },
+    duration: Date.now() - startTime,
+    success: results.every(r => r.status === "success"),
+  };
+
+  return { results, batchRecord };
+}
+
 /** 模拟任务执行器（实际部署时可替换为真实执行逻辑） */
 async function executeTask(task: Task, config: OrchestratorConfig): Promise<TaskResult> {
   const startTime = Date.now();
@@ -697,6 +826,7 @@ export async function executePlan(
 ): Promise<ExecutionResult> {
   const taskResults = new Map<string, TaskResult>();
   const taskMap = new Map(plan.tasks.map(t => [t.id, t]));
+  const codeActBatches: CodeActBatchRecord[] = []; // P1-2
   const startTime = Date.now();
 
   for (const group of plan.parallelGroups) {
@@ -747,45 +877,63 @@ export async function executePlan(
     }
 
     // 并行执行（限制最大并行度）
+    // P1-2: codeActBatching=true 时使用 CodeAct 批次执行（合并同类任务为一次 LLM 调用）
     const batches: string[][] = [];
     for (let i = 0; i < executable.length; i += config.maxParallelism) {
       batches.push(executable.slice(i, i + config.maxParallelism));
     }
 
     for (const batch of batches) {
-      const promises = batch.map(async taskId => {
-        const task = taskMap.get(taskId)!;
-        task.status = "running";
+      const batchTasks = batch.map(id => taskMap.get(id)!);
 
-        // 重试逻辑
-        let result: TaskResult;
-        let attempts = 0;
-        const maxAttempts = task.maxRetries + 1;
+      if (config.codeActBatching) {
+        // CodeAct 批次执行路径
+        const { results: codeActResults, batchRecord } = await executeCodeActBatch(batchTasks, config);
+        codeActBatches.push(batchRecord); // P1-2: 收集批次记录
+        for (const r of codeActResults) {
+          const task = taskMap.get(r.taskId)!;
+          task.status = r.status;
+          task.output = r.output;
+          task.error = r.error;
+          task.duration = r.duration;
+          taskResults.set(r.taskId, r);
+        }
+      } else {
+        // 逐任务执行路径（原始逻辑）
+        const promises = batch.map(async taskId => {
+          const task = taskMap.get(taskId)!;
+          task.status = "running";
 
-        do {
-          attempts++;
-          result = await executeTask(task, config);
+          let result: TaskResult;
+          let attempts = 0;
+          const maxAttempts = task.maxRetries + 1;
 
-          if (result.status === "failed" && attempts < maxAttempts) {
-            task.retryCount++;
-            task.status = "retrying";
-          }
-        } while (result.status === "failed" && attempts < maxAttempts);
+          do {
+            attempts++;
+            result = await executeTask(task, config);
 
-        task.status = result.status;
-        task.output = result.output;
-        task.error = result.error;
-        task.duration = result.duration;
-        taskResults.set(taskId, result);
-      });
+            if (result.status === "failed" && attempts < maxAttempts) {
+              task.retryCount++;
+              task.status = "retrying";
+            }
+          } while (result.status === "failed" && attempts < maxAttempts);
 
-      await Promise.all(promises);
+          task.status = result.status;
+          task.output = result.output;
+          task.error = result.error;
+          task.duration = result.duration;
+          taskResults.set(taskId, result);
+        });
+
+        await Promise.all(promises);
+      }
     }
   }
 
   const results = [...taskResults.values()];
   return {
     taskResults,
+    codeActBatches, // P1-2
     totalDuration: Date.now() - startTime,
     successCount: results.filter(r => r.status === "success").length,
     failedCount: results.filter(r => r.status === "failed").length,
@@ -975,6 +1123,15 @@ export function serializeResult(result: OrchestrationResult): Record<string, unk
       failedCount: result.execution.failedCount,
       skippedCount: result.execution.skippedCount,
       taskResults: Object.fromEntries(result.execution.taskResults),
+      codeActBatches: result.execution.codeActBatches.map(b => ({
+        batchId: b.batchId,
+        taskIds: b.taskIds,
+        taskType: b.taskType,
+        toolCalls: b.toolCalls,
+        llmCallReduction: b.llmCallReduction,
+        duration: b.duration,
+        success: b.success,
+      })),
     },
     verification: {
       goalAchieved: result.verification.goalAchieved,

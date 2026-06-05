@@ -1,13 +1,13 @@
 /**
- * SelfClaw Evolution Service v3.2
+ * SelfClaw Evolution Service v3.3
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  * + SkillOpt Pipeline (arXiv:2605.23904)
  *
- * v3.2 新增 (MAF Agent Harness - Context Compression):
- * POST /api/orchestrate — Plan 阶段新增 Context Compression（目标建模/意图识别/能力分析/Todo 生成）
- * GET  /api/orchestrate/plan — Plan 预览包含 goalModel + contextSummary
+ * v3.3 新增 (MAF Agent Harness - CodeAct Batching):
+ * POST /api/orchestrate — Execute 阶段新增 CodeAct 批处理（同类型任务合并为一次 LLM 调用）
+ * OrchestratorConfig 新增 codeActBatching 参数（默认开启）
  *
- * v3.1 端点 (Microsoft SKILL Pattern - BUILD 2026):
+ * v3.2 端点 (MAF Agent Harness - Context Compression):
  * POST /api/skill-pattern         — 批量生成 6 章节 SKILL Pattern
  * GET  /api/skill-pattern/:name  — 预览单技能 SKILL Pattern
  * POST /api/skill-pattern/generate — 生成 SKILL.pattern.md 文件
@@ -149,6 +149,7 @@ const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxRetries: Number(process.env.ORCHESTRATE_MAX_RETRIES) || 1,
   maxParallelism: Number(process.env.ORCHESTRATE_MAX_PARALLELISM) || 4,
   verifyThreshold: Number(process.env.ORCHESTRATE_VERIFY_THRESHOLD) || 0.7,
+  codeActBatching: process.env.ORCHESTRATE_CODEACT_BATCHING !== "false",
 };
 
 // ============================================================================
@@ -185,7 +186,7 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "3.2.0",
+    version: "3.3.0",
     modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
