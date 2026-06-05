@@ -1,11 +1,17 @@
 /**
- * SelfClaw Evolution Service v3.3
+ * SelfClaw Evolution Service v3.4
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  * + SkillOpt Pipeline (arXiv:2605.23904)
  *
  * v3.3 新增 (MAF Agent Harness - CodeAct Batching):
- * POST /api/orchestrate — Execute 阶段新增 CodeAct 批处理（同类型任务合并为一次 LLM 调用）
+ * POST /api/orchestrate — Execute 阶段新增 CodeAct 批处理
  * OrchestratorConfig 新增 codeActBatching 参数（默认开启）
+ *
+ * v3.4 新增 (MAF OpenTelemetry 可观测性):
+ * GET  /api/observability/traces  — 查询最近编排 traces
+ * GET  /api/observability/spans/:traceId — 查询指定 trace 的完整 spans
+ * GET  /api/observability/metrics — 查询最近 metrics
+ * GET  /api/observability/otlp — 导出 OTLP 兼容格式
  *
  * v3.2 端点 (MAF Agent Harness - Context Compression):
  * POST /api/skill-pattern         — 批量生成 6 章节 SKILL Pattern
@@ -121,6 +127,11 @@ import {
   type OrchestrationResult,
   DEFAULT_ORCHESTRATOR_CONFIG as DEFAULT_ORCHESTRATOR_DEFAULT,
 } from "./skill-orchestrator.js";
+import {
+  generateOrchestrationTrace,
+  queryTraces,
+  exportOtlpFormat,
+} from "./skill-observability.js";
 // ============================================================================
 // Config
 // ============================================================================
@@ -186,7 +197,7 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "3.3.0",
+    version: "3.4.0",
     modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
@@ -1165,7 +1176,14 @@ app.post("/api/orchestrate", async (req, res) => {
 
     const mergedConfig: OrchestratorConfig = { ...DEFAULT_ORCHESTRATOR_DEFAULT, ...config };
     const result = await orchestrate(goal, tasks, constraints ?? [], mergedConfig);
-    res.json(serializeResult(result));
+
+    // P1-3: 自动生成 OpenTelemetry Trace
+    const traceId = `trace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const trace = generateOrchestrationTrace(traceId, result);
+
+    // 将 traceId 返回给客户端，客户端可用它查询完整 trace
+    const serialized = serializeResult(result);
+    res.json({ ...serialized, _traceId: traceId, _traceSummary: { spans: trace.spans.length, metrics: trace.metrics.length } });
   } catch (error) {
     res.status(500).json({
       error: "Orchestration failed",
@@ -1230,6 +1248,55 @@ app.post("/api/orchestrate/plan", (req, res) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+});
+
+// ============================================================================
+// Skill Observability API (P1-3: MAF OpenTelemetry 可观测性)
+// ============================================================================
+
+/** GET /api/observability/traces — 查询最近的编排 traces */
+app.get("/api/observability/traces", (req, res) => {
+  const limit = parseInt(req.query.limit as string) || 20;
+  const since = req.query.since ? parseInt(req.query.since as string) : undefined;
+  const traceId = req.query.traceId as string | undefined;
+
+  const traces = queryTraces({ limit, since, traceId });
+  res.json({
+    count: traces.length,
+    traces: traces.map(t => ({
+      traceId: t.traceId,
+      startTime: new Date(t.startTime).toISOString(),
+      endTime: new Date(t.endTime).toISOString(),
+      spanCount: t.spans.length,
+      metricCount: t.metrics.length,
+      duration: t.endTime - t.startTime,
+    })),
+  });
+});
+
+/** GET /api/observability/spans/:traceId — 查询指定 trace 的完整 spans */
+app.get("/api/observability/spans/:traceId", (req, res) => {
+  const { traceId } = req.params;
+  const traces = queryTraces({ traceId });
+  if (traces.length === 0) {
+    res.status(404).json({ error: "Trace not found", traceId });
+    return;
+  }
+  res.json({ traceId, spans: traces[0].spans });
+});
+
+/** GET /api/observability/metrics — 查询最近的 metrics */
+app.get("/api/observability/metrics", (req, res) => {
+  const limit = parseInt(req.query.limit as string) || 20;
+  const traces = queryTraces({ limit });
+  const metrics = traces.flatMap(t => t.metrics);
+  res.json({ count: metrics.length, metrics });
+});
+
+/** GET /api/observability/otlp — 导出 OTLP 兼容格式 */
+app.get("/api/observability/otlp", (_req, res) => {
+  const otlp = exportOtlpFormat();
+  res.json(otlp);
 });
 
 // ============================================================================

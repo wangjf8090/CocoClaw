@@ -227,6 +227,60 @@ async function executeTask(task: Task, config: OrchestratorConfig): Promise<Task
 }
 ```
 
+## P1-3: OpenTelemetry 可观测性（v3.4）
+
+**模块**：`skill-observability.ts`
+
+**数据结构（OTLP 兼容）**：
+- `OtelSpan`：traceId/spanId/parentSpanId/startTime/endTime/duration/status/attributes/events
+- `OtelMetric`：name/value/unit/timestamp/traceId/attributes
+- `OrchestrationTrace`：包含完整的 spans + metrics
+
+**三层 Span 结构**：
+```
+orchestrator.plan
+  └─ orchestrator.execute
+       ├─ execute.batch.skill (batch_id, llm_calls_saved, task_count)
+       └─ execute.batch.http  (batch_id, llm_calls_saved, task_count)
+  └─ orchestrator.verify
+```
+
+**Metrics 指标**：
+| Metric | Unit | 说明 |
+|--------|------|------|
+| orchestrator.tasks.total/success/failed | tasks | 任务计数 |
+| orchestrator.duration.total | ms | 总耗时 |
+| orchestrator.goal_score | score | 目标达成度 |
+| orchestrator.llm_calls.saved | calls | CodeAct 节省调用数 |
+| orchestrator.batch.duration | ms | 批次执行耗时 |
+| orchestrator.llm_calls.reduction_ratio | ratio | LLM 调用减少比例 |
+
+**API 端点**：
+```
+GET /api/observability/traces       — 查询最近的编排 traces
+GET /api/observability/spans/:id   — 查询指定 trace 的完整 spans
+GET /api/observability/metrics     — 查询最近的 metrics
+GET /api/observability/otlp       — 导出 OTLP 兼容格式
+```
+
+**Ring Buffer**：内存中保留最近 100 条 traces，防止内存泄漏。
+
+**使用方式**：
+```bash
+# 触发编排（自动生成 trace）
+curl -X POST http://localhost:8084/api/orchestrate \
+  -H 'Content-Type: application/json' \
+  -d '{"goal": "审计技能", "tasks": [...]}'
+
+# 返回: { ..., "_traceId": "trace-...", "_traceSummary": { "spans": 5, "metrics": 13 } }
+
+# 查询 traces
+curl http://localhost:8084/api/observability/traces?limit=5
+
+# 导出 OTLP
+curl http://localhost:8084/api/observability/otlp
+```
+
 ## 未来扩展
 
 1. **真实执行器** — 替换 Mock 为 Evolution API / sessions_spawn 调用
