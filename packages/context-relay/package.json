@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "description": "Context Relay Setup - 解决Agent跨会话记忆断裂问题",
   "main": "src/index.js",
-  "keywords": ["context", "memory", "agent", "session", "persistence"],
+  "keywords": [
+    "context",
+    "memory",
+    "agent",
+    "session",
+    "persistence"
+  ],
   "author": "SelfClaw Team",
   "license": "MIT"
 }

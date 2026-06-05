@@ -14,7 +14,116 @@
  */
 
 // ============================================================================
-// Types
+// Context Compression Types (P1-1: MAF Agent Harness 对标)
+// ============================================================================
+
+/** 目标中的实体提取 */
+export interface GoalEntity {
+  name: string;
+  type: "skill" | "service" | "file" | "system" | "person" | "unknown";
+  mentions: number;
+}
+
+/** 目标意图分类 */
+export type GoalIntent =
+  | "audit"        // 审计/扫描
+  | "optimize"     // 优化/改进
+  | "deploy"       // 部署/发布
+  | "analyze"      // 分析/调研
+  | "manage"       // 管理/配置
+  | "create"       // 创建/生成
+  | "monitor"      // 监控/追踪
+  | "mixed";       // 混合意图
+
+/** 目标结构化建模（MAF Agent Harness 的 Todo List 基础） */
+export interface GoalModel {
+  /** 原始目标 */
+  originalGoal: string;
+  /** 意图分类 */
+  intent: GoalIntent;
+  /** 意图置信度 0-1 */
+  intentConfidence: number;
+  /** 提取的实体 */
+  entities: GoalEntity[];
+  /** 目标复杂度 1-5 */
+  complexity: number;
+  /** 可衡量的成功标准 */
+  successCriteria: string[];
+  /** 关键约束（从用户约束推导） */
+  keyConstraints: string[];
+}
+
+/** 结构化待办清单（MAF Agent Harness 的 Todo 管理） */
+export interface TodoItem {
+  id: string;
+  /** 待办描述 */
+  description: string;
+  /** 优先级：1=最高 */
+  priority: number;
+  /** 对应任务 ID（如果有） */
+  taskId?: string;
+  /** 是否完成 */
+  done: boolean;
+  /** 依赖的待办 ID */
+  dependsOn: string[];
+  /** 预计耗时（毫秒） */
+  estimatedDuration?: number;
+}
+
+/** 所需能力分析 */
+export interface CapabilityRequirements {
+  /** 需要调用的技能 */
+  requiredSkills: string[];
+  /** 需要访问的服务 */
+  requiredServices: string[];
+  /** 需要读写文件 */
+  requiredFiles: string[];
+  /** 需要执行的函数 */
+  requiredFunctions: string[];
+  /** 能力缺口（当前缺失的） */
+  gaps: string[];
+}
+
+/** 上下文压缩摘要（MAF Agent Harness 的 Context Management） */
+export interface ContextSummary {
+  /** 压缩后的目标简述（≤ 50 字） */
+  conciseGoal: string;
+  /** 关键实体（最多 10 个） */
+  keyEntities: string[];
+  /** 待办清单 */
+  todoList: TodoItem[];
+  /** 能力需求 */
+  capabilities: CapabilityRequirements;
+  /** 上下文压缩比 */
+  compressionRatio: number;
+  /** 上下文长度（压缩前 → 压缩后） */
+  contextLength: { before: number; after: number };
+}
+
+/** Plan 阶段输出（v3.2 新增 Context Compression） */
+export interface Plan {
+  /** 原始目标 */
+  goal: string;
+  /** 目标结构化建模 */
+  goalModel: GoalModel;
+  /** 上下文压缩摘要 */
+  contextSummary: ContextSummary;
+  /** 全局约束 */
+  constraints: string[];
+  /** 拆解后的任务列表 */
+  tasks: Task[];
+  /** 依赖关系图 */
+  dependencyGraph: Map<string, string[]>;
+  /** 拓扑排序后的执行顺序 */
+  executionOrder: string[];
+  /** 可并行的任务分组 */
+  parallelGroups: string[][];
+  /** Plan 生成时间 */
+  createdAt: string;
+}
+
+// ============================================================================
+// Task Types
 // ============================================================================
 
 /** 任务状态 */
@@ -50,24 +159,6 @@ export interface Task {
   retryCount: number;
   /** 执行耗时（毫秒） */
   duration?: number;
-}
-
-/** Plan 阶段输出 */
-export interface Plan {
-  /** 原始目标 */
-  goal: string;
-  /** 全局约束 */
-  constraints: string[];
-  /** 拆解后的任务列表 */
-  tasks: Task[];
-  /** 依赖关系图 */
-  dependencyGraph: Map<string, string[]>;
-  /** 拓扑排序后的执行顺序 */
-  executionOrder: string[];
-  /** 可并行的任务分组 */
-  parallelGroups: string[][];
-  /** Plan 生成时间 */
-  createdAt: string;
 }
 
 /** Execute 阶段输出 */
@@ -155,6 +246,280 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 };
 
 // ============================================================================
+// Context Compression Engine (P1-1: MAF Agent Harness 对标)
+// ============================================================================
+
+const INTENT_PATTERNS: Record<GoalIntent, RegExp[]> = {
+  audit:      [/审[计查]|扫描|a(?:\u672c)?udit|scan/i],
+  optimize:   [/优[化改进]|提升|opt(?:imize)?|enhance/i],
+  deploy:     [/部[署发]|上线|deploy|release/i],
+  analyze:    [/分析|调研|研究|analy(?:z|se)|research/i],
+  manage:     [/管理|配置|设置|manage|config/i],
+  create:     [/创[建新]|生成|create|generate/i],
+  monitor:    [/监[控听]|追踪|跟踪|monitor|track/i],
+  mixed:      [],
+};
+
+const ENTITY_TYPE_PATTERNS: Array<[GoalEntity["type"], RegExp]> = [
+  ["skill", /\b(skill|Skill|技能)\b.*?([\w-]+)/gi],
+  ["service", /\b(service|Service|服务)\b.*?([\w-]+)/gi],
+  ["file", /\b(\.md|\.ts|\.json|\.yaml|\.yml|\.txt)\b/gi],
+  ["system", /\b(system|System|系统)\b.*?([\w-]+)/gi],
+];
+
+/**
+ * 意图分类器：基于关键词匹配推断目标意图
+ */
+function classifyIntent(goal: string): { intent: GoalIntent; confidence: number } {
+  const scores: Record<GoalIntent, number> = {
+    audit: 0, optimize: 0, deploy: 0, analyze: 0,
+    manage: 0, create: 0, monitor: 0, mixed: 0,
+  };
+
+  for (const [intent, patterns] of Object.entries(INTENT_PATTERNS) as [GoalIntent, RegExp[]][]) {
+    for (const pattern of patterns) {
+      if (pattern.test(goal)) scores[intent]++;
+    }
+  }
+
+  const entries = Object.entries(scores) as [GoalIntent, number][];
+  entries.sort((a, b) => b[1] - a[1]);
+
+  const [topIntent, topScore] = entries[0];
+  const [secondIntent, secondScore] = entries[1];
+
+  // 混合意图判断：两个意图得分接近
+  if (topScore > 0 && secondScore > 0 && topScore <= secondScore * 1.5) {
+    return { intent: "mixed", confidence: 0.6 };
+  }
+
+  // 无匹配
+  if (topScore === 0) {
+    return { intent: "mixed", confidence: 0.3 };
+  }
+
+  return { intent: topIntent, confidence: Math.min(0.5 + topScore * 0.2, 0.95) };
+}
+
+/**
+ * 实体提取：从目标文本中提取具名实体
+ */
+function extractEntities(goal: string): GoalEntity[] {
+  const entityMap = new Map<string, GoalEntity>();
+
+  for (const [type, pattern] of ENTITY_TYPE_PATTERNS) {
+    let match: RegExpExecArray | null;
+    const regex = new RegExp(pattern.source, pattern.flags);
+    while ((match = regex.exec(goal)) !== null) {
+      const name = (match[2] || match[1] || match[0]).trim();
+      if (name.length < 2) continue;
+      const key = `${type}:${name}`;
+      if (entityMap.has(key)) {
+        entityMap.get(key)!.mentions++;
+      } else {
+        entityMap.set(key, { name, type, mentions: 1 });
+      }
+    }
+  }
+
+  return [...entityMap.values()]
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 10);
+}
+
+/**
+ * 复杂度评估：基于任务数、依赖深度、意图混合度计算
+ */
+function assessComplexity(taskDefs: Array<{ dependencies?: string[] }>): number {
+  const taskCount = taskDefs.length;
+  const hasSubOrchestration = taskDefs.some(t => t.dependencies && t.dependencies.length > 2);
+  const complexity = Math.min(Math.ceil(taskCount / 2) + (hasSubOrchestration ? 1 : 0), 5);
+  return complexity;
+}
+
+/**
+ * 从用户约束中提取关键约束
+ */
+function extractKeyConstraints(constraints: string[], goal: string): string[] {
+  if (!constraints || constraints.length === 0) return [];
+  // 约束本身即关键约束，直接返回
+  return constraints.slice(0, 5);
+}
+
+/**
+ * 生成成功标准（基于意图类型推断）
+ */
+function inferSuccessCriteria(goal: string, intent: GoalIntent): string[] {
+  const criteria: string[] = [];
+  switch (intent) {
+    case "audit":
+      criteria.push("所有技能完成审计", "生成审计报告");
+      break;
+    case "optimize":
+      criteria.push("描述优化完成", "质量提升可量化");
+      break;
+    case "deploy":
+      criteria.push("部署成功", "health check 通过");
+      break;
+    case "analyze":
+      criteria.push("分析报告生成", "关键洞察提取");
+      break;
+    case "create":
+      criteria.push("目标文件/资源创建成功");
+      break;
+    case "manage":
+      criteria.push("配置生效", "状态可验证");
+      break;
+    case "monitor":
+      criteria.push("监控数据采集正常", "异常告警正常");
+      break;
+    case "mixed":
+      criteria.push("所有子目标达成");
+      break;
+  }
+  return criteria;
+}
+
+/**
+ * 从任务定义中推导所需能力
+ */
+function inferCapabilities(
+  taskDefs: Array<{ type: string; input?: Record<string, unknown> }>,
+  goal: string
+): CapabilityRequirements {
+  const requiredSkills = new Set<string>();
+  const requiredServices = new Set<string>();
+  const requiredFiles = new Set<string>();
+  const requiredFunctions = new Set<string>();
+
+  for (const task of taskDefs) {
+    switch (task.type) {
+      case "skill":
+        if (task.input?.skillName && typeof task.input.skillName === "string") {
+          requiredSkills.add(task.input.skillName);
+        }
+        break;
+      case "http":
+        if (task.input?.url && typeof task.input.url === "string") {
+          try {
+            const url = new URL(task.input.url);
+            requiredServices.add(url.host);
+          } catch {}
+        }
+        break;
+      case "function":
+        if (task.input?.functionName && typeof task.input.functionName === "string") {
+          requiredFunctions.add(task.input.functionName);
+        }
+        break;
+    }
+  }
+
+  // 从目标文本中补充文件
+  const filePattern = /\b[\w-]+\.(md|ts|js|json|yaml|yml|txt)\b/g;
+  let match: RegExpExecArray | null;
+  const regex = new RegExp(filePattern.source, filePattern.flags);
+  while ((match = regex.exec(goal)) !== null) {
+    requiredFiles.add(match[0]);
+  }
+
+  // 能力缺口：目前 skillRegistry 只支持这 4 个
+  const availableSkills = new Set(["audit", "optimize", "lifecycle", "compliance", "template", "orchestrator"]);
+  const gaps = [...requiredSkills].filter(s => !availableSkills.has(s));
+
+  return {
+    requiredSkills: [...requiredSkills],
+    requiredServices: [...requiredServices],
+    requiredFiles: [...requiredFiles],
+    requiredFunctions: [...requiredFunctions],
+    gaps,
+  };
+}
+
+/**
+ * 生成结构化待办清单
+ */
+function buildTodoList(
+  tasks: Array<{ id: string; name: string; description: string; dependencies: string[]; timeout?: number }>,
+  goalModel: GoalModel
+): TodoItem[] {
+  // 优先级映射：按 executionOrder 逆序（后面的任务优先级更高）
+  const priorityByTaskId = new Map<string, number>();
+  tasks.forEach((t, i) => {
+    priorityByTaskId.set(t.id, tasks.length - i);
+  });
+
+  return tasks.map(task => ({
+    id: `todo-${task.id}`,
+    description: `${task.name}：${task.description}`.slice(0, 100),
+    priority: priorityByTaskId.get(task.id) ?? 3,
+    taskId: task.id,
+    done: false,
+    dependsOn: task.dependencies.map(d => `todo-${d}`),
+    estimatedDuration: task.timeout ?? 30_000,
+  }));
+}
+
+/**
+ * 上下文压缩核心函数（MAF Agent Harness 对标）
+ * 将原始 goal + taskDefs + constraints 压缩为结构化模型
+ */
+export function compressContext(
+  goal: string,
+  taskDefs: Array<{ id: string; name: string; type: string; description: string; dependencies: string[]; input?: Record<string, unknown>; timeout?: number }>,
+  constraints: string[] = []
+): { goalModel: GoalModel; contextSummary: ContextSummary } {
+  const beforeLength = goal.length + constraints.reduce((s, c) => s + c.length, 0);
+  const { intent, confidence } = classifyIntent(goal);
+  const entities = extractEntities(goal);
+  const complexity = assessComplexity(taskDefs);
+
+  const goalModel: GoalModel = {
+    originalGoal: goal,
+    intent,
+    intentConfidence: confidence,
+    entities,
+    complexity,
+    successCriteria: inferSuccessCriteria(goal, intent),
+    keyConstraints: extractKeyConstraints(constraints, goal),
+  };
+
+  // 生成压缩后的简述（≤ 50 字）
+  const intentLabel: Record<GoalIntent, string> = {
+    audit: "审计", optimize: "优化", deploy: "部署",
+    analyze: "分析", manage: "管理", create: "创建",
+    monitor: "监控", mixed: "综合",
+  };
+  const conciseGoal = `${intentLabel[intent]} ${taskDefs.length} 个任务${entities[0] ? `（涉${entities[0].name}）` : ""}`;
+
+  const capabilities = inferCapabilities(taskDefs, goal);
+
+  // 从 tasks 生成 TodoItem（临时 Task 类型需要兼容）
+  const tasksForTodo = taskDefs.map(t => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    dependencies: t.dependencies,
+    timeout: t.timeout ?? 30_000,
+  }));
+  const todoList = buildTodoList(tasksForTodo, goalModel);
+
+  const afterLength = conciseGoal.length + entities.reduce((s, e) => s + e.name.length, 0);
+  const compressionRatio = beforeLength > 0 ? Math.min(afterLength / beforeLength, 1) : 1;
+
+  const contextSummary: ContextSummary = {
+    conciseGoal: conciseGoal.slice(0, 50),
+    keyEntities: entities.slice(0, 10).map(e => e.name),
+    todoList,
+    capabilities,
+    compressionRatio: Math.round(compressionRatio * 100) / 100,
+    contextLength: { before: beforeLength, after: afterLength },
+  };
+
+  return { goalModel, contextSummary };
+}
+
+// ============================================================================
 // Plan Engine
 // ============================================================================
 
@@ -231,12 +596,15 @@ function computeParallelGroups(tasks: Task[], executionOrder: string[]): string[
     .map(([, ids]) => ids);
 }
 
-/** Plan 阶段：目标建模 + 任务拆解 + 依赖分析 */
+/** Plan 阶段：目标建模 + 任务拆解 + 依赖分析 + 上下文压缩（MAF Agent Harness 对标） */
 export function createPlan(
   goal: string,
   taskDefs: Array<Omit<Task, "status" | "retryCount" | "output" | "error" | "duration">>,
   constraints: string[] = []
 ): Plan {
+  // P1-1: 上下文压缩（目标建模 + 意图识别 + 能力分析 + Todo 生成）
+  const { goalModel, contextSummary } = compressContext(goal, taskDefs, constraints);
+
   const tasks: Task[] = taskDefs.map(def => ({
     ...def,
     timeout: def.timeout ?? DEFAULT_ORCHESTRATOR_CONFIG.taskTimeout,
@@ -255,6 +623,8 @@ export function createPlan(
 
   return {
     goal,
+    goalModel,
+    contextSummary,
     constraints,
     tasks,
     dependencyGraph,
@@ -566,6 +936,23 @@ export function serializeResult(result: OrchestrationResult): Record<string, unk
     totalDuration: result.totalDuration,
     plan: {
       goal: result.plan.goal,
+      goalModel: result.plan.goalModel,
+      contextSummary: {
+        conciseGoal: result.plan.contextSummary.conciseGoal,
+        keyEntities: result.plan.contextSummary.keyEntities,
+        todoList: result.plan.contextSummary.todoList.map(t => ({
+          id: t.id,
+          description: t.description,
+          priority: t.priority,
+          taskId: t.taskId,
+          done: t.done,
+          dependsOn: t.dependsOn,
+          estimatedDuration: t.estimatedDuration,
+        })),
+        capabilities: result.plan.contextSummary.capabilities,
+        compressionRatio: result.plan.contextSummary.compressionRatio,
+        contextLength: result.plan.contextSummary.contextLength,
+      },
       constraints: result.plan.constraints,
       taskCount: result.plan.tasks.length,
       executionOrder: result.plan.executionOrder,

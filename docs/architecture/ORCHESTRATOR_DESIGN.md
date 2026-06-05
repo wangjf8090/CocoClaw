@@ -14,23 +14,45 @@ Skill Orchestrator 是 SelfClaw v3.0 的核心编排引擎，实现了 **Plan→
 
 ## 三阶段详解
 
-### 1. Plan 阶段
+### 1. Plan 阶段（v3.2 新增 Context Compression）
 
 **输入**：目标（goal）+ 任务定义列表 + 约束条件
 
 **核心逻辑**：
-1. 接收任务定义，构建任务图
-2. **拓扑排序**（Kahn 算法）确定执行顺序
-3. **并行分组**：基于依赖深度计算，同一深度的任务可并行执行
-4. 循环依赖检测
+1. **Context Compression（MAF Agent Harness 对标）**：目标结构化建模
+   - 意图分类：基于关键词推断 intent（audit/optimize/deploy/analyze/manage/create/monitor/mixed）
+   - 实体提取：从目标文本中识别技能、服务、文件、系统等实体
+   - 复杂度评估：基于任务数和依赖深度计算 1-5 级复杂度
+   - 能力分析：推导 requiredSkills/Services/Files/Functions 及能力缺口
+   - Todo 生成：每个任务生成结构化待办项（优先级/依赖/耗时）
+2. 接收任务定义，构建任务图
+3. **拓扑排序**（Kahn 算法）确定执行顺序
+4. **并行分组**：基于依赖深度计算，同一深度的任务可并行执行
+5. 循环依赖检测
 
 **输出**：
 ```
 Plan {
-  goal, constraints, tasks[],
-  dependencyGraph,      // Map<taskId, depIds[]>
-  executionOrder,       // 拓扑排序结果
-  parallelGroups,       // [[t1], [t2,t3], [t4]]
+  goal, goalModel, contextSummary, constraints, tasks[],
+  dependencyGraph, executionOrder, parallelGroups,
+}
+```
+
+其中 `goalModel` = { intent, intentConfidence, entities, complexity, successCriteria, keyConstraints }
+`contextSummary` = { conciseGoal, keyEntities, todoList, capabilities, compressionRatio, contextLength }
+
+**示例**：
+```
+输入: 审计所有技能并优化描述
+goalModel: { intent: "mixed", intentConfidence: 0.6, complexity: 1, ... }
+contextSummary: {
+  conciseGoal: "综合 2 个任务",
+  todoList: [
+    { id: "todo-audit", description: "技能审计：扫描所有技能文件", priority: 2, done: false },
+    { id: "todo-optimize", description: "描述优化：优化过长描述", priority: 1, done: false }
+  ],
+  capabilities: { requiredSkills: ["all"], gaps: ["all"] },
+  compressionRatio: 0.44
 }
 ```
 

@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "description": "李诞七步写作框架 - 让内容愿意看、看得懂、愿意信",
   "main": "src/index.js",
-  "keywords": ["writing", "content", "framework", "li-dan", "copywriting"],
+  "keywords": [
+    "writing",
+    "content",
+    "framework",
+    "li-dan",
+    "copywriting"
+  ],
   "author": "SelfClaw Team",
   "license": "MIT"
 }

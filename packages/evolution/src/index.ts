@@ -1,9 +1,13 @@
 /**
- * SelfClaw Evolution Service v3.1
+ * SelfClaw Evolution Service v3.2
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  * + SkillOpt Pipeline (arXiv:2605.23904)
  *
- * v3.1 新增端点 (Microsoft SKILL Pattern - BUILD 2026):
+ * v3.2 新增 (MAF Agent Harness - Context Compression):
+ * POST /api/orchestrate — Plan 阶段新增 Context Compression（目标建模/意图识别/能力分析/Todo 生成）
+ * GET  /api/orchestrate/plan — Plan 预览包含 goalModel + contextSummary
+ *
+ * v3.1 端点 (Microsoft SKILL Pattern - BUILD 2026):
  * POST /api/skill-pattern         — 批量生成 6 章节 SKILL Pattern
  * GET  /api/skill-pattern/:name  — 预览单技能 SKILL Pattern
  * POST /api/skill-pattern/generate — 生成 SKILL.pattern.md 文件
@@ -181,7 +185,7 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "3.1.0",
+    version: "3.2.0",
     modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
     timestamp: new Date().toISOString(),
@@ -1189,11 +1193,28 @@ app.post("/api/orchestrate/plan", (req, res) => {
     const plan = createPlan(goal, tasks, constraints ?? []);
     res.json({
       goal: plan.goal,
+      goalModel: plan.goalModel,
+      contextSummary: {
+        conciseGoal: plan.contextSummary.conciseGoal,
+        keyEntities: plan.contextSummary.keyEntities,
+        todoList: plan.contextSummary.todoList.map((t: { id: string; description: string; priority: number; taskId?: string; done: boolean; dependsOn: string[]; estimatedDuration?: number }) => ({
+          id: t.id,
+          description: t.description,
+          priority: t.priority,
+          taskId: t.taskId,
+          done: t.done,
+          dependsOn: t.dependsOn,
+          estimatedDuration: t.estimatedDuration,
+        })),
+        capabilities: plan.contextSummary.capabilities,
+        compressionRatio: plan.contextSummary.compressionRatio,
+        contextLength: plan.contextSummary.contextLength,
+      },
       constraints: plan.constraints,
       taskCount: plan.tasks.length,
       executionOrder: plan.executionOrder,
       parallelGroups: plan.parallelGroups,
-      tasks: plan.tasks.map(t => ({
+      tasks: plan.tasks.map((t: { id: string; name: string; type: string; description: string; dependencies: string[] }) => ({
         id: t.id,
         name: t.name,
         type: t.type,

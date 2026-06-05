@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "description": "AI内容合规标注模块 - 符合国家网信办新规",
   "main": "src/ai-labeling.js",
-  "keywords": ["compliance", "aigc", "labeling", "regulation", "content"],
+  "keywords": [
+    "compliance",
+    "aigc",
+    "labeling",
+    "regulation",
+    "content"
+  ],
   "author": "SelfClaw Team",
   "license": "MIT"
 }

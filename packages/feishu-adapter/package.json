@@ -23,9 +23,6 @@
     "child_process": "^1.0.2",
     "https": "^1.0.0"
   },
-  "peerDependencies": {
-    "@selfclaw/gateway": "^1.0.0"
-  },
   "exports": {
     ".": "./index.js",
     "./api-client": "./api-client.js",
