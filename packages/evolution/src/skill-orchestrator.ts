@@ -11,7 +11,26 @@
  * - 单进程内闭环，不依赖外部调度器
  * - 复用现有 Evolution 服务的基础设施
  * - 每个 Task 可以是 Skill 调用 / HTTP 请求 / 本地函数
+ *
+ * v3.5: 新增协作契约（对标 CooperBench Stanford HAI 2026）
+ *  - 每个 Plan → 1 个 Contract
+ *  - 每个 Task → 1 个 Commitment（自动创建）
+ *  - Verify 阶段做 4 类违约检测 + 协作分数
  */
+
+import {
+  createContract,
+  activateContract,
+  terminateContract,
+  createCommitment,
+  verifyCommitment,
+  detectAllViolations,
+  evaluateCollaboration,
+  generateCoordinationSuggestions,
+  type CollaborationContract,
+  type CommitmentExecution,
+  type ViolationResult,
+} from "./skill-collaboration-contract.js";
 
 // ============================================================================
 // Context Compression Types (P1-1: MAF Agent Harness 对标)
@@ -120,6 +139,16 @@ export interface Plan {
   parallelGroups: string[][];
   /** Plan 生成时间 */
   createdAt: string;
+  /** v3.5: 协作契约 ID（每个 Plan 自动创建 1 个 Contract） */
+  contractId?: string;
+  /** v3.5: 协调建议（基于 CooperBench 成功模式生成） */
+  coordinationSuggestions?: Array<{
+    type: "ROLE_DIVISION" | "RESOURCE_DIVISION" | "NEGOTIATION" | "SYNC_CHECK";
+    priority: "LOW" | "MEDIUM" | "HIGH";
+    suggestion: string;
+    affectedTasks?: string[];
+    expectedOutcome: string;
+  }>;
 }
 
 // ============================================================================
@@ -175,6 +204,8 @@ export interface ExecutionResult {
   failedCount: number;
   /** 跳过任务数 */
   skippedCount: number;
+  /** v3.5: 承诺执行记录（每个 Task → Commitment） */
+  commitmentExecutions?: CommitmentExecution[];
 }
 
 /** 单任务执行结果 */
@@ -199,6 +230,17 @@ export interface VerificationResult {
   retryNeeded: string[];
   /** 验证报告 */
   report: string;
+  /** v3.5: 协作分数（0-1，CooperBench 风格） */
+  collaborationScore?: {
+    overall: number;
+    fulfillmentRate: number;
+    conflictFreeRate: number;
+    responseRate: number;
+    failureBreakdown: { expectation: number; commitment: number; communication: number };
+    rating: "excellent" | "good" | "fair" | "poor";
+  };
+  /** v3.5: 违约检测结果（4 类：空间/语义/承诺未兑现/时间） */
+  violations?: ViolationResult[];
 }
 
 /** 单任务验证 */
@@ -239,6 +281,8 @@ export interface OrchestratorConfig {
   verifyThreshold: number;
   /** P1-2: 启用 CodeAct 批处理（多个同类任务合并为一次 LLM 调用），默认开启 */
   codeActBatching: boolean;
+  /** v3.5: 启用协作契约（CooperBench 对标），默认开启 */
+  collaborationContract: boolean;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
@@ -248,6 +292,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxParallelism: 4,
   verifyThreshold: 0.7,
   codeActBatching: true,
+  collaborationContract: true,
 };
 
 // ============================================================================
@@ -648,6 +693,11 @@ export function createPlan(
   const executionOrder = topologicalSort(tasks);
   const parallelGroups = computeParallelGroups(tasks, executionOrder);
 
+  // v3.5: 协作契约 — 每个 Plan 自动创建 1 个 Contract
+  // 延迟到 orchestrate() 时按需创建（避免 createPlan 引入模块耦合）
+  // 这里只生成协调建议（纯函数，无副作用）
+  const coordinationSuggestions = generateCoordinationSuggestions(`plan-${Date.now()}`, tasks);
+
   return {
     goal,
     goalModel,
@@ -658,6 +708,7 @@ export function createPlan(
     executionOrder,
     parallelGroups,
     createdAt: new Date().toISOString(),
+    coordinationSuggestions,
   };
 }
 
@@ -1046,11 +1097,72 @@ export async function orchestrate(
   // Plan
   const plan = createPlan(goal, taskDefs, constraints);
 
+  // v3.5: 协作契约 — 为这个 Plan 创建 Contract + 给每个 Task 创建 Commitment
+  let contract: CollaborationContract | null = null;
+  if (config.collaborationContract && plan.tasks.length > 1) {
+    contract = createContract(id, plan.tasks.map(t => t.id));
+    plan.contractId = contract.id;
+
+    // 为每个 Task 创建 Commitment（默认 FEATURE_IMPLEMENTATION 类型）
+    for (const task of plan.tasks) {
+      const commitmentType = task.type === "http" ? "SYNC_POINT" : "FEATURE_IMPLEMENTATION";
+      createCommitment(contract.id, commitmentType, task.description, task.id, {
+        assignee: task.dependencies[0], // 默认 assignee 是第一个依赖
+      });
+    }
+
+    // 激活契约
+    activateContract(contract.id);
+  }
+
   // Execute
   const execution = await executePlan(plan, config);
 
+  // v3.5: 跟踪承诺执行（每个 Task 完成后验证对应 Commitment）
+  if (contract) {
+    const commitmentExecutions: CommitmentExecution[] = [];
+    for (const task of plan.tasks) {
+      const result = execution.taskResults.get(task.id);
+      const commitment = contract.commitments.find(c => c.owner === task.id);
+      if (!commitment) continue;
+
+      const fulfilled = result?.status === "success";
+      verifyCommitment(contract.id, commitment.id, {
+        success: fulfilled,
+        evidence: result?.error ?? result?.output ? `task ${task.id} ${result.status}` : undefined,
+      });
+
+      commitmentExecutions.push({
+        commitmentId: commitment.id,
+        taskId: task.id,
+        fulfilled,
+        evidence: result?.status,
+      });
+    }
+    execution.commitmentExecutions = commitmentExecutions;
+  }
+
   // Verify
   const verification = verifyResult(goal, plan, execution, config);
+
+  // v3.5: 协作契约评估 — 违约检测 + 协作分数
+  if (contract) {
+    const taskDurations = new Map<string, number>();
+    for (const task of plan.tasks) {
+      const r = execution.taskResults.get(task.id);
+      if (r) taskDurations.set(task.id, r.duration);
+    }
+
+    const violations = detectAllViolations(contract.id, execution.commitmentExecutions ?? [], taskDurations);
+    const score = evaluateCollaboration(contract.id);
+
+    verification.collaborationScore = score ?? undefined;
+    verification.violations = violations;
+
+    // 终止契约
+    const hasBrokenCommitments = contract.commitments.some(c => c.status === "BROKEN");
+    terminateContract(contract.id, hasBrokenCommitments ? "存在违约承诺" : "所有承诺履约完成");
+  }
 
   // 确定最终状态
   let status: OrchestrationResult["status"];
@@ -1106,6 +1218,9 @@ export function serializeResult(result: OrchestrationResult): Record<string, unk
       executionOrder: result.plan.executionOrder,
       parallelGroups: result.plan.parallelGroups,
       createdAt: result.plan.createdAt,
+      // v3.5
+      contractId: result.plan.contractId,
+      coordinationSuggestions: result.plan.coordinationSuggestions,
       tasks: result.plan.tasks.map(t => ({
         id: t.id,
         name: t.name,
@@ -1132,12 +1247,17 @@ export function serializeResult(result: OrchestrationResult): Record<string, unk
         duration: b.duration,
         success: b.success,
       })),
+      // v3.5
+      commitmentExecutions: result.execution.commitmentExecutions,
     },
     verification: {
       goalAchieved: result.verification.goalAchieved,
       goalScore: result.verification.goalScore,
       retryNeeded: result.verification.retryNeeded,
       report: result.verification.report,
+      // v3.5
+      collaborationScore: result.verification.collaborationScore,
+      violations: result.verification.violations,
     },
     createdAt: result.createdAt,
     completedAt: result.completedAt,

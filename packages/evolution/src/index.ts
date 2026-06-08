@@ -132,6 +132,14 @@ import {
   queryTraces,
   exportOtlpFormat,
 } from "./skill-observability.js";
+import {
+  getContract,
+  getContractByPlanId,
+  evaluateCollaboration,
+  detectAllViolations,
+  listContractIds,
+  getContractCount,
+} from "./skill-collaboration-contract.js";
 // ============================================================================
 // Config
 // ============================================================================
@@ -161,6 +169,7 @@ const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxParallelism: Number(process.env.ORCHESTRATE_MAX_PARALLELISM) || 4,
   verifyThreshold: Number(process.env.ORCHESTRATE_VERIFY_THRESHOLD) || 0.7,
   codeActBatching: process.env.ORCHESTRATE_CODEACT_BATCHING !== "false",
+  collaborationContract: process.env.ORCHESTRATE_COLLABORATION_CONTRACT !== "false", // v3.5
 };
 
 // ============================================================================
@@ -197,9 +206,10 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "healthy",
     service: "evolution-harness",
-    version: "3.4.0",
-    modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator"],
+    version: "3.5.0",
+    modules: ["skill-audit", "skill-optimize", "skill-lifecycle", "skill-compliance", "skill-template", "skill-orchestrator", "skill-collaboration-contract"],
     v21Features: ["meta-skill-audit", "negative-transfer-guard", "silent-bypass-detect", "text-space-optimizer", "skill-memory"],
+    v35Features: ["collaboration-contract", "commitment-verification", "violation-detection", "collaboration-score"],
     timestamp: new Date().toISOString(),
   });
 });
@@ -1297,6 +1307,73 @@ app.get("/api/observability/metrics", (req, res) => {
 app.get("/api/observability/otlp", (_req, res) => {
   const otlp = exportOtlpFormat();
   res.json(otlp);
+});
+
+// ============================================================================
+// Skill Collaboration Contract API (v3.5: CooperBench Stanford HAI 2026)
+// ============================================================================
+
+/** GET /api/collaboration/contracts — 所有契约 ID 列表 */
+app.get("/api/collaboration/contracts", (_req, res) => {
+  res.json({
+    count: getContractCount(),
+    contractIds: listContractIds(),
+  });
+});
+
+/** GET /api/collaboration/contract/:contractId — 查询契约详情 */
+app.get("/api/collaboration/contract/:contractId", (req, res) => {
+  const contract = getContract(req.params.contractId);
+  if (!contract) {
+    res.status(404).json({ error: "Contract not found", contractId: req.params.contractId });
+    return;
+  }
+  res.json(contract);
+});
+
+/** GET /api/collaboration/contract-by-plan/:planId — 通过 Plan ID 查契约 */
+app.get("/api/collaboration/contract-by-plan/:planId", (req, res) => {
+  const contract = getContractByPlanId(req.params.planId);
+  if (!contract) {
+    res.status(404).json({ error: "Contract not found for plan", planId: req.params.planId });
+    return;
+  }
+  res.json(contract);
+});
+
+/** GET /api/collaboration/contract/:contractId/score — 协作分数（CooperBench 风格） */
+app.get("/api/collaboration/contract/:contractId/score", (req, res) => {
+  const score = evaluateCollaboration(req.params.contractId);
+  if (!score) {
+    res.status(404).json({ error: "Contract not found", contractId: req.params.contractId });
+    return;
+  }
+  res.json({
+    contractId: req.params.contractId,
+    ...score,
+    paperReference: "arXiv:2601.13295 (CooperBench)",
+  });
+});
+
+/** GET /api/collaboration/contract/:contractId/violations — 违约检测 */
+app.get("/api/collaboration/contract/:contractId/violations", (req, res) => {
+  const contract = getContract(req.params.contractId);
+  if (!contract) {
+    res.status(404).json({ error: "Contract not found", contractId: req.params.contractId });
+    return;
+  }
+  // 收集所有任务时长（用于时间冲突检测）
+  const taskDurations = new Map<string, number>();
+  for (const partyId of contract.parties) {
+    // 占位：实际从 execution 结果中获取
+    taskDurations.set(partyId, 100);
+  }
+  const violations = detectAllViolations(req.params.contractId, [], taskDurations);
+  res.json({
+    contractId: req.params.contractId,
+    count: violations.length,
+    violations,
+  });
 });
 
 // ============================================================================

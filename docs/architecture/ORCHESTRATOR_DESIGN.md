@@ -288,3 +288,139 @@ curl http://localhost:8084/api/observability/otlp
 3. **流式输出** — SSE 推送每个任务的实时状态
 4. **持久化** — 编排结果存入 PostgreSQL，支持历史查询
 5. **递归编排** — sub-orchestration 任务类型支持嵌套编排
+
+
+---
+
+## v3.5 协作契约模块（对标 CooperBench Stanford HAI 2026）
+
+### 背景：协作诅咒（The Curse of Coordination）
+
+Stanford HAI × SAP Labs US 2026 年发布的 CooperBench 论文（[arXiv:2601.13295](https://arxiv.org/abs/2601.13295)）揭示了一个反直觉的发现：**当前 SOTA 编码 Agent 双人协作成功率仅为单 Agent 独自完成任务的一半**。
+
+| 模型 | 协作模式 | 独做模式 | 性能差距 |
+|------|---------|---------|---------|
+| GPT-5 (OpenHands) | 27.95% | ~50% | **-50%** |
+| Claude Sonnet 4.5 | 25.92% | ~50% | **-50%** |
+
+**三维根因**（来自 CooperBench 失败案例分析）：
+- **预期失效** 42%：Agent A 告知计划后，Agent B 收到但无视
+- **承诺失效** 32%：Agent 承诺"我会添加检查函数"但实际未完成
+- **沟通失效** 26%：直接问题被无视；产生幻觉性声明
+
+**规模灾难**：
+- 1 Agent (Solo)：基准
+- 2 Agents：68.6%
+- 3 Agents：46.5%
+- 4 Agents：30.0%
+
+### 解决方案：协作契约
+
+论文作者建议开发者实现**承诺验证系统**（Commitment Verification System）和**类合同协议**。SelfClaw v3.5 实现了完整的协作契约模块。
+
+### 核心数据模型
+
+| 类型 | 作用 |
+|------|------|
+| `CollaborationContract` | 契约主体（参与方 + 承诺 + 状态机） |
+| `Commitment` | 单个承诺（PENDING → ACKNOWLEDGED → IN_PROGRESS → VERIFIED/BROKEN） |
+| `ResourceBoundary` | 资源边界（文件 + 行号 + 符号） |
+| `CoordinationSuggestion` | 协调建议（基于 CooperBench 三种成功模式） |
+| `CollaborationScore` | 协作分数（0-1 + 评级） |
+| `ViolationResult` | 违约结果（4 类） |
+
+### 4 类违约检测
+
+| 类型 | 检测内容 | CooperBench 对应 |
+|------|---------|------------------|
+| **SPATIAL** | Agent 承诺只改 X 行，实际改了 Y 行 | 资源切分失败 |
+| **SEMANTIC** | Agent 声称"完成"但实际未提供实现 | 承诺失效 32% |
+| **UNFULFILLED** | 任务完成后承诺仍未 VERIFIED | 承诺失效 32% |
+| **TIMING** | 同步点承诺"等待"但立即行动 | 沟通失效 26% |
+
+### 协作分数公式
+
+```
+履约率 = VERIFIED 承诺数 / 总承诺数
+无冲突率 = 1 - (冲突数 / 总任务数)
+协作分 = 履约率 × 0.6 + 无冲突率 × 0.4
+```
+
+评级：≥0.9 excellent · ≥0.75 good · ≥0.5 fair · <0.5 poor
+
+### 集成到三阶段
+
+| 阶段 | 协作契约动作 |
+|------|------------|
+| **Plan** | 为每个 Plan 自动创建 1 个 Contract；为每个 Task 创建 1 个 Commitment；生成协调建议 |
+| **Execute** | 跟踪每个 Task 的承诺执行；记录 commitmentExecutions |
+| **Verify** | 4 类违约检测；计算协作分数（0-1） |
+
+### API 端点
+
+```
+GET /api/collaboration/contracts                     — 所有契约 ID 列表
+GET /api/collaboration/contract/:contractId          — 查询契约详情
+GET /api/collaboration/contract-by-plan/:planId      — 通过 Plan ID 查契约
+GET /api/collaboration/contract/:contractId/score    — 协作分数
+GET /api/collaboration/contract/:contractId/violations — 违约检测
+```
+
+**使用示例**：
+```bash
+# 触发编排（自动创建 Contract + 跟踪 Commitment + 计算 Score）
+curl -X POST http://localhost:8084/api/orchestrate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "goal": "审计所有技能并优化描述",
+    "tasks": [
+      {"id":"t1","name":"技能审计","type":"skill","description":"扫描所有技能","dependencies":[],"constraints":[],"input":{},"timeout":5000,"maxRetries":1},
+      {"id":"t2","name":"合规检查","type":"function","description":"行业合规","dependencies":["t1"],"constraints":[],"input":{},"timeout":5000,"maxRetries":1}
+    ]
+  }'
+# 返回: { ..., "verification": { "collaborationScore": { "overall": 1, "rating": "excellent" }, "violations": [] } }
+
+# 查询协作分数
+curl http://localhost:8084/api/collaboration/contract/contract-XXX/score
+# 返回: { "overall": 1, "fulfillmentRate": 1, "conflictFreeRate": 1, "rating": "excellent" }
+
+# 禁用协作契约（环境变量或 config）
+ORCHESTRATE_COLLABORATION_CONTRACT=false
+# 或
+{ ..., "config": { "collaborationContract": false } }
+```
+
+### CooperBench 三种成功模式（用于生成协调建议）
+
+| 模式 | 触发条件 | 预期改善 |
+|------|---------|---------|
+| **ROLE_DIVISION** | 多任务无明确角色 | 减少 42% 预期失效 |
+| **RESOURCE_DIVISION** | 多任务共享同一文件 | 物理杜绝代码冲突 |
+| **NEGOTIATION** | 检测到任务依赖冲突 | 避免盲目行动返工 |
+| **SYNC_CHECK** | 多 HTTP 任务共享外部服务 | 减少 20% 时间违约 |
+
+### 验证结果（E2E）
+
+```
+输入: 3 任务 (技能审计 → 合规 + 优化)
+Plan 阶段:
+  contractId: contract-1780883311883-0001
+  coordinationSuggestions: 1 个 [ROLE_DIVISION]
+
+Execution 阶段:
+  commitmentExecutions: 3 个，全部 fulfilled=True
+
+Verify 阶段:
+  overall: 1.0 (excellent)
+  fulfillmentRate: 1.0
+  conflictFreeRate: 1.0
+  failureBreakdown: {expectation:0, commitment:0, communication:0}
+  violations: 0
+```
+
+### 未来扩展
+
+1. **结构化消息（StructuredMessage）** — 完整实现 A2A 协议，支持跨 Agent 异步通信
+2. **动态契约调整** — 根据违约历史自动调整契约条款
+3. **CooperBench 自评估** — 集成 CooperBench 基准跑分
+4. **真实资源边界检测** — 接入文件系统，精确跟踪代码修改范围
