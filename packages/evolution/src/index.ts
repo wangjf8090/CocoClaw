@@ -1,7 +1,10 @@
 /**
- * SelfClaw Evolution Service v3.4
+ * SelfClaw Evolution Service v3.7
  * 整合 Skill Audit + Skill Optimize + Skill Lifecycle + Compliance + Template
  * + SkillOpt Pipeline (arXiv:2605.23904)
+ *
+ * v3.7 新增 (Loop Engineering - WorkTree Manager):
+ * WorkTreeManager — Git Worktree 隔离管理器
  *
  * v3.3 新增 (MAF Agent Harness - CodeAct Batching):
  * POST /api/orchestrate — Execute 阶段新增 CodeAct 批处理
@@ -125,8 +128,22 @@ import {
   type Task as OrchestratorTask,
   type Plan as OrchestratorPlan,
   type OrchestrationResult,
+  type VerificationModelConfig, // v3.7.0
   DEFAULT_ORCHESTRATOR_CONFIG as DEFAULT_ORCHESTRATOR_DEFAULT,
 } from "./skill-orchestrator.js";
+// v3.7.0: 独立验证模型（Loop Engineering M1.3）
+import {
+  VerificationModel,
+  createClaudeHaikuVerifier,
+  createMultiModelVerifier,
+  createMockVerifier,
+  type VerificationConfig,
+  type VerificationContext,
+  type VerificationResult as VMVerificationResult,
+  type SingleVerificationResult,
+  type MultiVerificationResult,
+  type VerificationStats,
+} from "./verification-model.js";
 import {
   generateOrchestrationTrace,
   queryTraces,
@@ -140,6 +157,52 @@ import {
   listContractIds,
   getContractCount,
 } from "./skill-collaboration-contract.js";
+// v3.6.1 新增: 反合理化表
+import {
+  detectRationalization,
+  verifySelfJustification,
+  logAntiRationalization,
+  getAntiRationalizationReport,
+  clearAntiRationalizationLogs,
+  generateMarkdownReport,
+  getAntiRationalizationTable,
+  auditSkillRationalization,
+  runAuditWithRationalizationCheck,
+  getRationalizationAuditReport,
+  getRationalizationMarkdownReport,
+  type AntiRationalizationDetection,
+  type AntiRationalizationLog,
+  type AntiRationalizationReport,
+} from "./skill-anti-rationalization.js";
+// v3.6.1 新增: 强制完整输出
+import {
+  checkCompleteness,
+  generateContinuePrompt,
+  mergeContinuation,
+  forcedCompleteLoop,
+  quickTruncationCheck,
+  autoFixTruncation,
+  getSupportedHeuristics,
+  validateSkillContentCompleteness,
+  optimizeWithCompletenessCheck,
+  isContentPotentiallyTruncated,
+  listCompletenessHeuristics,
+  type CompletenessCheck,
+  type CompletenessIssue,
+  type ForcedCompleteConfig,
+  type ContinueResult,
+} from "./skill-forced-complete.js";
+
+// v3.7 新增: WorkTree Manager (Loop Engineering - Git Worktree 隔离)
+import {
+  WorkTreeManager,
+  type WorktreeInfo,
+  type WorktreeStatus,
+  type CommandResult,
+  type WorktreeOptions,
+  WorkTreeError,
+} from "./worktree-manager.js";
+
 // ============================================================================
 // Config
 // ============================================================================
@@ -170,6 +233,17 @@ const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   verifyThreshold: Number(process.env.ORCHESTRATE_VERIFY_THRESHOLD) || 0.7,
   codeActBatching: process.env.ORCHESTRATE_CODEACT_BATCHING !== "false",
   collaborationContract: process.env.ORCHESTRATE_COLLABORATION_CONTRACT !== "false", // v3.5
+  // v3.7.0: 独立验证模型配置（Loop Engineering M1.3）
+  verificationModel: process.env.ORCHESTRATE_VERIFICATION_ENABLED === "true" ? {
+    enabled: true,
+    model: process.env.ORCHESTRATE_VERIFICATION_MODEL || "claude-haiku",
+    requireMultiModelConsensus: process.env.ORCHESTRATE_VERIFICATION_MULTI === "true",
+    consensusModels: process.env.ORCHESTRATE_VERIFICATION_CONSENSUS_MODELS 
+      ? process.env.ORCHESTRATE_VERIFICATION_CONSENSUS_MODELS.split(",") 
+      : ["claude-haiku", "gpt-4o-mini"],
+    confidenceThreshold: Number(process.env.ORCHESTRATE_VERIFICATION_CONFIDENCE) || 0.7,
+    humanCheckpointInterval: Number(process.env.ORCHESTRATE_VERIFICATION_CHECKPOINT_INTERVAL) || 5,
+  } : undefined,
 };
 
 // ============================================================================

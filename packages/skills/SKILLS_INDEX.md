@@ -12,6 +12,15 @@
 
 ---
 
+## 🏥 医疗/药店垂类技能（v3.6.0 - v3.7.0）
+
+| # | 技能名称 | 类型 | 来源 | 版本 | 状态 |
+|---|---------|------|------|------|------|
+| 6 | **medical-advisor** | 医疗助手 | SelfClaw | v1.1.0 | ✅ 已安装 |
+| 7 | **pharmacy-operations-advisor** | 药店经营辅助 | SelfClaw | v1.0.0 | ✅ 新增 (v3.7.0 M1) |
+
+---
+
 ## 📋 技能详情
 
 ### 1. News Aggregator Skill (新闻聚合助手)
@@ -94,6 +103,40 @@ python3 scripts/analyze_stock.py --code 600519
 
 ---
 
+## 🏥 医疗/药店垂类技能详情
+
+### 6. medical-advisor (通用医疗助手)
+**目录**: `./medical-advisor/`
+**功能**: 基于多数据源可插拔架构的通用医疗助手
+**核心能力**:
+- 药品信息查询（商品名/通用名/用法用量）
+- 体检报告解读
+- 药物相互作用分析
+- 症状分析
+- 文献检索
+
+**版本**: v1.1.0（v3.6.0.1 去中康化版）
+**数据源**: 中康科技（可选）/ PubMed / 临床指南
+
+---
+
+### 7. pharmacy-operations-advisor (药店经营辅助助手) ⭐新增
+**目录**: `./pharmacy-operations-advisor/`
+**功能**: 药店数字化经营工具，提供药品查询、库存管理、合规检查
+**核心能力**:
+- 药品信息查询（OTC/处方药分类）
+- 用药指导（服用方法/注意事项）
+- 库存分析（效期预警/补货建议）
+- 合规检查（处方药销售/禁售品识别）
+- 药物相互作用检查
+- 同品替换建议
+
+**版本**: v1.0.0（v3.7.0 M1）
+**数据源**: 卫健委公开数据 / PubMed / 临床指南
+**差异化**: 开发者级药店经营 Skill，基于公开数据源，零授权风险
+
+---
+
 ## 🔄 技能获取渠道
 
 ### 虾评平台 (https://xiaping.coze.site)
@@ -105,10 +148,12 @@ python3 scripts/analyze_stock.py --code 600519
 
 ## 📊 技能安装统计
 
-**总计**: 5个技能
-- 🌟 虾评下载: 5个 (100%)
+**总计**: 7个技能
+- 🌟 虾评下载: 5个 (71%)
+- 🏥 SelfClaw: 2个 (29%)
 - 📝 提示词型: 1个
 - 🔧 工具脚本型: 4个
+- 🏥 垂类技能: 2个 (medical-advisor, pharmacy-operations-advisor)
 
 ---
 
@@ -116,6 +161,10 @@ python3 scripts/analyze_stock.py --code 600519
 
 **P0 - 高频使用**:
 - News Aggregator Skill: 每日新闻聚合
+
+**P0 - 医疗垂类（v3.7.0）**:
+- pharmacy-operations-advisor: 药店经营辅助（新增）
+- medical-advisor: 通用医疗助手
 
 **P1 - 基础设施**:
 - Agent Memory System Guide: 构建记忆系统
@@ -125,6 +174,9 @@ python3 scripts/analyze_stock.py --code 600519
 - AI Text Detox: 内容润色
 - Stock Analysis: 股票分析
 
+**P3 - 预留**:
+- 中医体质辨识: v3.7.0 M2 规划
+
 ---
 
-*最后更新: 2026-05-11*
+*最后更新: 2026-06-15（新增 pharmacy-operations-advisor v3.7.0 M1）*

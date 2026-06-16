@@ -261,6 +261,39 @@ Default alerts configured for:
 - High memory usage (>85%)
 - Service health check failures
 
+## 🎯 OpenClaw 安全危机对位分析（2026-06 更新）
+
+2026 年上半年，OpenClaw 在 GitHub 突破 28 万 Stars，但同期披露 169+ CVE、135,000+ 实例暴露公网、1,400+ 恶意 Skill（ClawHavoc 攻击）。本节为 SelfClaw 框架技术选型者提供与 OpenClaw 的安全能力对照。
+
+### 攻击面数据（OpenClaw 公开事件，2026-02~06）
+
+| 事件 | 影响 | SelfClaw 对应能力 |
+|------|------|---------------------|
+| **ClawJacked**（CVE-2026-24763 系列，2/25 披露） | 任何网站静默劫持本地 Agent，零点击零感知 | WebSocket Origin 强制校验 + localhost 设备配对必须 dashboard 确认 + 全版本 rate-limit 无例外 |
+| **ClawHavoc 供应链投毒** | 1,184–1,467 恶意 Skill 上传 ClawHub，传播 Atomic macOS Stealer | skill-audit Meta-Skill 三维度 + 负迁移评估 + 静默绕过检测 |
+| **默认配置不安全** | 63% 部署从未改默认配置；`0.0.0.0:18789` 公网绑定；135K+ 暴露实例 | Gateway 默认绑定 `127.0.0.1`；Docker 一键脚本禁止公网绑定；cap_drop ALL + 最小能力授予 |
+| **累计 CVE** | 5 Critical + 58 High + 96 Medium（169 总） | 7 层纵深防御 + OpenTelemetry 全链路审计 + Skill Cleaner 全生命周期 |
+
+### SelfClaw 已落地的防御能力
+
+- ✅ **Skill Cleaner v2.1**：Meta-Skill 三维度审计（失败机制 35% / 操作具体性 35% / 风险黑名单 30%）+ 负迁移防护 + 静默绕过检测
+- ✅ **SkillOpt 6 阶段 Pipeline**：Rollout→Reflect→Edit→Gate，文本学习率 lr=4，52/52 实测全胜
+- ✅ **Skill Orchestrator（v3.0.0）**：Plan→Execute→Verify 三阶段，依赖感知调度（避免 ClawHavoc 类"安装即执行"的隐式触发）
+- ✅ **OpenTelemetry 可观测性（v3.4.0）**：三层 Span + 13 类 Metrics + OTLP 导出（ClawJacked 事后归因能力）
+- ✅ **7 层纵深防御（v1.1.0）**：认证 / 网络 / 权限 / 审计 / 优化 / 生命周期 / 可观测
+
+### 三个已识别的待补强项
+
+| 编号 | 问题 | 严重度 | 修复方案版本 |
+|------|------|--------|--------------|
+| I | 运行时沙箱粒度不足（无 syscall 级 seccomp） | High | v3.5.0（P0） |
+| II | 跨 Agent 通信无审计 | Medium-High | v3.5.0–v4.0.0（P1） |
+| III | 审计正则 over-fit（4 技能均 99 分，区分度丧失） | Low（但威胁核心卖点） | v3.5.0（P0） |
+
+**完整对比稿与修复方案**：
+- 对比稿：[`SelfClaw文章/20260609-selfclaw-vs-openclaw-skill-security.md`](../SelfClaw文章/20260609-selfclaw-vs-openclaw-skill-security.md)
+- 修复方案：[`SelfClaw文章/20260609-selfclaw-self-issues-fix-plan.md`](../SelfClaw文章/20260609-selfclaw-self-issues-fix-plan.md)
+
 ## 🔒 Security
 
 ### Security Features
@@ -272,6 +305,11 @@ Default alerts configured for:
 - ✅ CORS configuration
 - ✅ Non-root container users
 - ✅ Secrets management via .env
+- ✅ WebSocket Origin header validation (ClawJacked 对位)
+- ✅ Default `127.0.0.1` binding (no public exposure by default)
+- ✅ Capability minimum scope per paired device
+- ✅ OpenTelemetry trace for all Skill invocations
+- ✅ Skill Cleaner v2.1 (Meta-Skill three-dimension audit)
 
 ### Security Checklist (Before Production)
 

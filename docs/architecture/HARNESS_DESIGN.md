@@ -31,6 +31,52 @@ v2.1 新增两个核心模块，对标 Coze 3.0 行业技能包生态：
 
 来源：[Pydantic The Harness Thesis](https://pydantic.dev/articles/the-harness-thesis)
 
+### 第三方实证支撑：PawBench v1.0（2026-06-05）
+
+> **Pydantic 提出的 "Harness > Model" 论断不再只是观点，而是被通义实验室发布的 PawBench v1.0 量化证实。**
+
+**PawBench 是什么**
+
+2026 年 6 月 5 日，通义实验室开源的通用智能体评测基准 v1.0。核心创新是把"**模型 × Harness × 任务**"做三维交叉评测：
+
+- 覆盖 **9 个底座模型** × **3 款运行框架** × **150 道任务** = **4050 个测试单元**
+- 首次把 Harness（运行框架）作为独立变量纳入评测体系
+
+**三个硬核数据**
+
+| 数据 | 数值 | 含义 |
+|---|---|---|
+| 框架间平均分差 | **6.4 分** | ≈ 一次模型小版本迭代 |
+| 单模型跨框架最大分差 | **11.5 分** | ≈ 一次模型代际差距 |
+| 反直觉结论 | 小模型 + 好框架 > 大模型 + 差框架 | Harness 工程设计的杠杆效应 |
+
+**对 SelfClaw 的关键意义**
+
+- 6.4 分 ≈ 一次模型迭代，意味着 Harness 设计每优化 1 分，相当于模型团队干一轮
+- 11.5 分的最大差说明：**Agent 的最终表现不是由模型单点决定，而是由 Harness 工程的成熟度决定**
+- SelfClaw 的 Pydantic Harness Thesis 路线从"理论假设"升级为"被工业级基准量化的工程结论"
+
+**PawBench 四项 Harness 设计原则 × SelfClaw 对应**
+
+| PawBench 原则 | SelfClaw 对应模块 | 现状 |
+|---|---|---|
+| **充分告知 (Full Disclosure)**：结构化状态注入，避免散落信息 | Pydantic Schema 状态传递 + Memory 服务 | ✅ 已落地 |
+| **按需装备 (On-demand Equip)**：工具按任务阶段动态加载 | Orchestrator 的 Plan→Execute→Verify 分阶段暴露 | ✅ 已落地 |
+| **主动监控 (Active Monitoring)**：执行/监控分离，设立检查站 | OpenTelemetry 可观测性 + Skill Compliance | ✅ 已落地（v3.4） |
+| **弹性恢复 (Resilient Recovery)**：重试/熔断/回滚等纯工程能力 | SkillOpt Pipeline 的 Rollback Engine + 三大进化回路 | ✅ 已落地 |
+
+**对项目定位的强化**
+
+> SelfClaw 不再仅仅是"Pydantic Harness Thesis 的早期工程实践"，而是**首个以 Harness Engineering 为核心理念、并能拿出可量化对照的工程化 Agent 框架**。PawBench 的发布为整个社区建立了统一的对照基准，SelfClaw 可在下一阶段对接 PawBench 做第三方能力校验。
+
+**未来动作**
+
+- 在 Orchestrator 中暴露 PawBench 兼容的 Harness 描述接口
+- 拉取 PawBench 任务集做最小子集回归，量化 SelfClaw Harness 的得分水位
+- 在 evaluation 模块新增 `pawbench-compat` 适配器
+
+来源：[PawBench 调研报告 2026-06-09](../../SelfClaw研究/PawBench调研_20260609.md)
+
 ## 核心架构
 
 ```
@@ -489,3 +535,4 @@ curl http://localhost:8084/api/template/ai-text-detox | jq '.content'
 - **项目空间集成** — Context Relay 升级为项目级上下文隔离和共享
 - **跨端同步** — Memory 服务支持设备级上下文快照
 - **使用数据对接** — skill-lifecycle 连接 Coze Agent 的真实使用指标
+- **PawBench 兼容与对标** — 在 Orchestrator 暴露 PawBench 兼容的 Harness 描述接口，evaluation 模块新增 `pawbench-compat` 适配器，量化 SelfClaw Harness 的得分水位（详见上文"第三方实证支撑"）

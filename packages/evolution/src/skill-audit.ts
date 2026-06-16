@@ -949,3 +949,117 @@ export function runAudit(config: AuditConfig): AuditReport {
 
   return report;
 }
+
+// ============================================================================
+// v3.6.1 新增: 反合理化表集成
+// 来源: addyosmani/agent-skills（TDD/Code Review 技能集 + 反合理化表机制）
+// ============================================================================
+
+import {
+  detectRationalization,
+  verifySelfJustification,
+  logAntiRationalization,
+  getAntiRationalizationReport,
+  clearAntiRationalizationLogs,
+  generateMarkdownReport,
+  getAntiRationalizationTable,
+  type AntiRationalizationDetection,
+  type AntiRationalizationLog,
+  type AntiRationalizationReport,
+} from "./skill-anti-rationalization.js";
+
+export {
+  detectRationalization,
+  verifySelfJustification,
+  logAntiRationalization,
+  getAntiRationalizationReport,
+  clearAntiRationalizationLogs,
+  generateMarkdownReport,
+  getAntiRationalizationTable,
+};
+
+export type {
+  AntiRationalizationDetection,
+  AntiRationalizationLog,
+  AntiRationalizationReport,
+};
+
+/**
+ * 检测技能描述中的合理化行为
+ * 
+ * 在审计流程中检测 Agent 是否使用了合理化借口（如"改动小"、"跳过测试"等）
+ */
+export function auditSkillRationalization(
+  skillName: string,
+  skillBody: string,
+  agentResponse?: string
+): {
+  detection: AntiRationalizationDetection;
+  verification?: { approved: boolean; reason: string };
+} {
+  const detection = detectRationalization(skillBody, skillName);
+  
+  if (!detection.detected) {
+    return { detection };
+  }
+  
+  // 如果提供了 Agent 响应，验证其自证是否充分
+  if (agentResponse) {
+    const verification = verifySelfJustification(detection, agentResponse);
+    return { detection, verification };
+  }
+  
+  return { detection };
+}
+
+/**
+ * 在审计报告中包含反合理化审计结果
+ */
+export function runAuditWithRationalizationCheck(
+  config: AuditConfig,
+  agentResponses?: Map<string, string>
+): AuditReport {
+  // 执行常规审计
+  const report = runAudit(config);
+  
+  // 对每个技能进行反合理化检查
+  const skills = discoverSkills(config);
+  
+  for (const skill of skills) {
+    const body = fs.readFileSync(skill.filePath, "utf8");
+    const agentResponse = agentResponses?.get(skill.name);
+    
+    const { detection, verification } = auditSkillRationalization(
+      skill.name,
+      body,
+      agentResponse
+    );
+    
+    if (detection.detected) {
+      // 记录到审计日志
+      logAntiRationalization(
+        skill.name,
+        detection,
+        agentResponse ?? "",
+        verification?.approved ?? false ? 'approved' : 'rejected',
+        verification?.reason ?? "未提供 Agent 自证"
+      );
+    }
+  }
+  
+  return report;
+}
+
+/**
+ * 获取反合理化审计报告（供 API 端点使用）
+ */
+export function getRationalizationAuditReport(): AntiRationalizationReport {
+  return getAntiRationalizationReport();
+}
+
+/**
+ * 生成反合理化 Markdown 报告（供 API 端点使用）
+ */
+export function getRationalizationMarkdownReport(): string {
+  return generateMarkdownReport();
+}

@@ -470,3 +470,92 @@ The framework is now ready for production deployment and real-world use.
 ---
 
 *虾评技能生态里程碑 - 2026-05-11*
+
+---
+
+## 📈 v3.7.0 M1 里程碑：药店经营辅助 Skill（2026-06-15）
+
+### 🏥 项目概述
+
+| Item | Status | Details |
+|------|--------|---------|
+| **Project Name** | ✅ SelfClaw v3.7.0 M1 | Pharmacy Operations Advisor |
+| **Phase** | ✅ M1 完成 | 药店经营辅助 Skill |
+| **Status** | ✅ COMPLETE | 100% Done |
+| **Version** | ✅ 1.0.0 | Skill Factory Medical Template |
+| **Completion Date** | ✅ 2026-06-15 | |
+
+---
+
+### 📊 M1 进度
+
+```
+████████████████████████████████████████  100%
+v3.7.0 M1 Complete - Pharmacy Operations Advisor Skill Ready
+```
+
+---
+
+### ✅ M1 交付物清单
+
+#### 核心文件创建（18 文件，~4,000+ 行）
+
+| # | 文件 | 状态 |
+|---|------|------|
+| 1 | `./packages/skills/pharmacy-operations-advisor/SKILL.md` | ✅ |
+| 2 | `./packages/skills/pharmacy-operations-advisor/mcp/interfaces.ts` | ✅ |
+| 3 | `./packages/skills/pharmacy-operations-advisor/mcp/index.ts` | ✅ |
+| 4 | `./packages/skills/pharmacy-operations-advisor/mcp/config.ts` | ✅ |
+| 5 | `./packages/skills/pharmacy-operations-advisor/mcp/nhc-adapter.ts` | ✅ |
+| 6 | `./packages/skills/pharmacy-operations-advisor/mcp/clinical-guidelines-adapter.ts` | ✅ |
+| 7 | `./packages/skills/pharmacy-operations-advisor/mcp/pubmed-adapter.ts` | ✅ |
+| 8 | `./packages/skills/pharmacy-operations-advisor/mcp-adapter.ts` | ✅ |
+| 9 | `./packages/skills/pharmacy-operations-advisor/test-scenarios.md` | ✅ |
+| 10 | `./packages/skills/pharmacy-operations-advisor/publish-checklist.md` | ✅ |
+| 11 | `./packages/skills/pharmacy-operations-advisor/prompts/drug-info-prompt.md` | ✅ |
+| 12 | `./packages/skills/pharmacy-operations-advisor/prompts/medication-guidance-prompt.md` | ✅ |
+| 13 | `./packages/skills/pharmacy-operations-advisor/prompts/inventory-prompt.md` | ✅ |
+| 14 | `./packages/skills/pharmacy-operations-advisor/prompts/compliance-check-prompt.md` | ✅ |
+| 15 | `./packages/skills/pharmacy-operations-advisor/prompts/pharmacy-disclaimer.md` | ✅ |
+| 16 | `./packages/skills/pharmacy-operations-advisor/tests/pharmacy-operations-advisor.test.ts` | ✅ |
+| 17 | `./docs/architecture/PHARMACY_OPERATIONS_SKILL.md` | ✅ |
+| 18 | `./packages/skills/SKILLS_INDEX.md` (更新) | ✅ |
+
+---
+
+### 🏥 4 大核心能力
+
+| # | 能力 | 数据源 |
+|---|------|--------|
+| 1 | **药品查询** | nhc-adapter |
+| 2 | **用药指导** | clinical-guidelines-adapter |
+| 3 | **库存分析** | nhc-adapter |
+| 4 | **合规检查** | nhc-adapter |
+
+---
+
+### 🧪 测试场景 P01-P10
+
+| ID | 测试类型 | 优先级 |
+|----|----------|--------|
+| P01 | 药品信息查询 | P0 |
+| P02 | 用药指导查询 | P0 |
+| P03 | 效期预警分析 | P0 |
+| P04-P05 | 合规检查 | P0 |
+| P06 | 药物相互作用 | P0 |
+| P07-P10 | 经营辅助 | P1-P2 |
+
+---
+
+### 📋 v3.7.0 下一步
+
+| 阶段 | 任务 | 状态 |
+|------|------|------|
+| **M1 完成** | 药店经营辅助 Skill | ✅ 2026-06-15 |
+| **M2 W5-W8** | 中医体质辨识 Skill | 📋 规划中 |
+| **M3 W9-W12** | 商业化准备 | 📋 规划中 |
+
+---
+
+*v3.7.0 M1 里程碑 - 2026-06-15*
+

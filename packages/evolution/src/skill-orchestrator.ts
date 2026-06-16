@@ -283,6 +283,24 @@ export interface OrchestratorConfig {
   codeActBatching: boolean;
   /** v3.5: 启用协作契约（CooperBench 对标），默认开启 */
   collaborationContract: boolean;
+  /** v3.7.0: 独立验证模型配置（Loop Engineering M1.3） */
+  verificationModel?: VerificationModelConfig;
+}
+
+/** v3.7.0: 独立验证模型配置（Loop Engineering M1.3） */
+export interface VerificationModelConfig {
+  /** 启用独立验证模型（不配置则使用原有规则验证） */
+  enabled: boolean;
+  /** 验证模型类型（默认 claude-haiku） */
+  model: 'claude-haiku' | 'gpt-4o-mini' | 'claude-sonnet' | 'custom' | string;
+  /** 启用多模型冗余验证 */
+  requireMultiModelConsensus?: boolean;
+  /** 多模型列表 */
+  consensusModels?: string[];
+  /** 置信度阈值：低于此值触发人工确认，默认 0.7 */
+  confidenceThreshold?: number;
+  /** 每 N 轮强制人工确认，默认 5 */
+  humanCheckpointInterval?: number;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
@@ -293,6 +311,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   verifyThreshold: 0.7,
   codeActBatching: true,
   collaborationContract: true,
+  verificationModel: undefined,
 };
 
 // ============================================================================
@@ -996,15 +1015,25 @@ export async function executePlan(
 // Verify Engine
 // ============================================================================
 
-/** Verify 阶段：结果校验 + 目标对比 */
+/** Verify 阶段：结果校验 + 目标对比
+ * 
+ * v3.7.0: 新增 verificationModel 参数，支持独立模型验证（Loop Engineering M1.3）
+ * 当配置了 verificationModel 时，将使用独立模型进行语义级验证，
+ * 而非原有的基于规则的简单验证。
+ * 
+ * @param verificationModel - 可选的 VerificationModel 实例（由外部注入）
+ */
 export function verifyResult(
   goal: string,
   plan: Plan,
   execution: ExecutionResult,
-  config: OrchestratorConfig = DEFAULT_ORCHESTRATOR_CONFIG
+  config: OrchestratorConfig = DEFAULT_ORCHESTRATOR_CONFIG,
+  verificationModel?: VerificationModelInstance
 ): VerificationResult {
   const taskVerifications: TaskVerification[] = [];
   const retryNeeded: string[] = [];
+  let modelVerificationInfo: string | undefined;
+  let requireHumanReview = false;
 
   for (const task of plan.tasks) {
     const result = execution.taskResults.get(task.id);
@@ -1019,19 +1048,66 @@ export function verifyResult(
       continue;
     }
 
-    // 基础验证：任务是否成功
-    const passed = result.status === "success";
+    // v3.7.0: 尝试使用独立验证模型
+    let passed = result.status === "success";
+    let relevance = 0.5;
+    let notes = "";
+    let modelUsed: string | undefined;
 
-    // 关联度评估：任务描述与目标的语义关联
-    // 简化实现：检查任务名称/描述中的关键词是否出现在目标中
-    const goalWords = new Set(goal.toLowerCase().split(/\s+/));
-    const taskWords = `${task.name} ${task.description}`.toLowerCase().split(/\s+/);
-    const overlap = taskWords.filter(w => goalWords.has(w)).length;
-    const relevance = taskWords.length > 0 ? overlap / taskWords.length : 0.5;
+    if (verificationModel && config.verificationModel?.enabled) {
+      try {
+        // 构建验证上下文
+        const context = {
+          skillName: task.input?.skillName as string ?? task.name,
+          goal,
+          expectedOutput: task.description,
+          actualOutput: result.output ? JSON.stringify(result.output) : (result.error ?? "无输出"),
+          executionMeta: {
+            taskId: task.id,
+            duration: result.duration,
+            retries: result.retries,
+            status: result.status,
+          },
+        };
 
-    const notes = passed
-      ? `任务成功完成${result.duration ? `，耗时 ${result.duration}ms` : ""}`
-      : `任务失败: ${result.error ?? "未知错误"}`;
+        // 调用独立验证模型
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const modelResult = verificationModel.verify(context) as any;
+
+        if (modelResult) {
+          passed = modelResult.passed ?? passed;
+          relevance = modelResult.confidence ?? relevance;
+          notes = modelResult.reason ?? "";
+          modelUsed = modelResult.modelUsed;
+          requireHumanReview = modelResult.requireHumanReview ?? requireHumanReview;
+
+          if (modelUsed) {
+            modelVerificationInfo = `验证模型: ${modelUsed}，置信度: ${(modelResult.confidence * 100).toFixed(0)}%`;
+          }
+        }
+      } catch (err) {
+        // 验证模型调用失败，回退到规则验证
+        notes = `[验证模型调用失败，使用规则验证] ${err instanceof Error ? err.message : String(err)}`;
+        modelVerificationInfo = "验证模型: 调用失败(Fallback)";
+      }
+    }
+
+    // 如果没有使用模型验证，执行原有规则验证
+    if (!modelVerificationInfo || !config.verificationModel?.enabled) {
+      // 基础验证：任务是否成功
+      passed = result.status === "success";
+
+      // 关联度评估：任务描述与目标的语义关联
+      // 简化实现：检查任务名称/描述中的关键词是否出现在目标中
+      const goalWords = new Set(goal.toLowerCase().split(/\s+/));
+      const taskWords = `${task.name} ${task.description}`.toLowerCase().split(/\s+/);
+      const overlap = taskWords.filter(w => goalWords.has(w)).length;
+      relevance = taskWords.length > 0 ? overlap / taskWords.length : 0.5;
+
+      notes = passed
+        ? `任务成功完成${result.duration ? `，耗时 ${result.duration}ms` : ""}`
+        : `任务失败: ${result.error ?? "未知错误"}`;
+    }
 
     taskVerifications.push({ taskId: task.id, passed, relevance, notes });
 
@@ -1058,6 +1134,8 @@ export function verifyResult(
     `**目标**: ${goal}`,
     `**达成度**: ${(goalScore * 100).toFixed(1)}% (阈值: ${(config.verifyThreshold * 100).toFixed(0)}%)`,
     `**结论**: ${goalAchieved ? "✅ 目标达成" : "❌ 目标未达成"}`,
+    modelVerificationInfo ? `\n**验证方式**: ${modelVerificationInfo}` : "",
+    requireHumanReview ? `\n⚠️ **需要人工确认**（置信度低于阈值）` : "",
     ``,
     `### 任务详情`,
     ...taskVerifications.map(v =>
@@ -1083,16 +1161,45 @@ export function verifyResult(
 // Full Orchestration
 // ============================================================================
 
-/** 执行完整编排流程 */
+// Forward declaration for VerificationModel (avoid circular import)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type VerificationModelInstance = any;
+
+/** 执行完整编排流程
+ * 
+ * v3.7.0: 支持独立验证模型（Loop Engineering M1.3）
+ * 当 config.verificationModel.enabled 为 true 时，
+ * 将自动创建并使用 VerificationModel 实例进行语义级验证。
+ */
 export async function orchestrate(
   goal: string,
   taskDefs: Array<Omit<Task, "status" | "retryCount" | "output" | "error" | "duration">>,
   constraints: string[] = [],
-  config: OrchestratorConfig = DEFAULT_ORCHESTRATOR_CONFIG
+  config: OrchestratorConfig = DEFAULT_ORCHESTRATOR_CONFIG,
+  verificationModel?: VerificationModelInstance
 ): Promise<OrchestrationResult> {
   const id = `orch-${Date.now()}`;
   const createdAt = new Date().toISOString();
   const startTime = Date.now();
+
+  // v3.7.0: 动态创建 VerificationModel 实例（如果配置了且未传入）
+  let vm: VerificationModelInstance = verificationModel;
+  if (!vm && config.verificationModel?.enabled) {
+    try {
+      // 动态导入避免循环依赖
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { VerificationModel } = await import("./verification-model.js");
+      vm = new VerificationModel({
+        model: config.verificationModel.model as any,
+        requireMultiModelConsensus: config.verificationModel.requireMultiModelConsensus,
+        consensusModels: config.verificationModel.consensusModels as any,
+        confidenceThreshold: config.verificationModel.confidenceThreshold,
+        humanCheckpointInterval: config.verificationModel.humanCheckpointInterval,
+      });
+    } catch (err) {
+      console.warn("[orchestrate] Failed to create VerificationModel:", err);
+    }
+  }
 
   // Plan
   const plan = createPlan(goal, taskDefs, constraints);
@@ -1143,7 +1250,7 @@ export async function orchestrate(
   }
 
   // Verify
-  const verification = verifyResult(goal, plan, execution, config);
+  const verification = verifyResult(goal, plan, execution, config, vm);
 
   // v3.5: 协作契约评估 — 违约检测 + 协作分数
   if (contract) {

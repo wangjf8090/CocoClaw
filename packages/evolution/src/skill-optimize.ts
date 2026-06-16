@@ -938,3 +938,102 @@ export function getGlobalRejectedBuffer(
 export function resetGlobalRejectedBuffer(): void {
   globalPersistentBuffer = null;
 }
+
+// ============================================================================
+// v3.6.1 新增: 强制完整输出集成
+// 来源: Leonxlnx/taste-skill（强制完整输出技能解决 LLM 中途截断）
+// ============================================================================
+
+import {
+  checkCompleteness,
+  generateContinuePrompt,
+  mergeContinuation,
+  forcedCompleteLoop,
+  quickTruncationCheck,
+  autoFixTruncation,
+  getSupportedHeuristics,
+  type CompletenessCheck,
+  type CompletenessIssue,
+  type ForcedCompleteConfig,
+  type ContinueResult,
+} from "./skill-forced-complete.js";
+
+export {
+  checkCompleteness,
+  generateContinuePrompt,
+  mergeContinuation,
+  forcedCompleteLoop,
+  quickTruncationCheck,
+  autoFixTruncation,
+  getSupportedHeuristics,
+};
+
+export type {
+  CompletenessCheck,
+  CompletenessIssue,
+  ForcedCompleteConfig,
+  ContinueResult,
+};
+
+/**
+ * 在技能文档生成后进行完整性校验
+ * 
+ * @param skillContent - 生成的技能文档内容
+ * @param config - 配置
+ * @returns 完整性检查结果
+ */
+export function validateSkillContentCompleteness(
+  skillContent: string,
+  config?: ForcedCompleteConfig
+): CompletenessCheck {
+  return checkCompleteness(skillContent, config);
+}
+
+/**
+ * 对优化后的技能内容进行完整性检查
+ * 
+ * 未通过则触发重试机制
+ */
+export async function optimizeWithCompletenessCheck(
+  originalContent: string,
+  suggestedContent: string,
+  continueFn: (prompt: string) => Promise<string>,
+  config?: ForcedCompleteConfig
+): Promise<{
+  content: string;
+  completeness: CompletenessCheck;
+  wasContinued: boolean;
+}> {
+  // 首先尝试自动修复
+  let content = autoFixTruncation(suggestedContent);
+  let wasContinued = false;
+  
+  // 检查完整性
+  let completeness = checkCompleteness(content, config);
+  
+  // 如果不完整，触发续写循环
+  if (!completeness.isComplete) {
+    const result = await forcedCompleteLoop(content, continueFn, config);
+    content = result.content;
+    completeness = result.finalCheck;
+    wasContinued = result.iterations > 0;
+  }
+  
+  return { content, completeness, wasContinued };
+}
+
+/**
+ * 快速检查内容是否可能被截断
+ * 
+ * 这是一个轻量级检查，用于初步筛选
+ */
+export function isContentPotentiallyTruncated(text: string): boolean {
+  return quickTruncationCheck(text);
+}
+
+/**
+ * 获取支持的完整性检查启发式列表
+ */
+export function listCompletenessHeuristics(): string[] {
+  return getSupportedHeuristics();
+}
