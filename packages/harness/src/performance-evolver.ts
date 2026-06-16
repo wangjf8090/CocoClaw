@@ -12,6 +12,9 @@ import {
   PerformanceEvolverConfig,
   EvolutionChange,
   PerformanceStats,
+  TokenSavingMetrics,
+  PerToolTokenSaving,
+  HarnessDashboard,
 } from './types.js';
 
 export class PerformanceEvolver {
@@ -29,6 +32,8 @@ export class PerformanceEvolver {
     maxParallelism: 4,
     compressionEnabled: false,
   };
+  // Token 基线（用于计算节省比例，对标 DuMate 75% 基准）
+  private baselineTokens: number | null = null;
 
   constructor(config: PerformanceEvolverConfig) {
     this.config = config;
@@ -61,6 +66,9 @@ export class PerformanceEvolver {
         this.stats.tokenUsage.perTool[tool].push(usage);
       }
     }
+
+    // Sync tokenSaving metrics
+    this.syncTokenSavingMetrics();
   }
 
   /**
@@ -299,5 +307,142 @@ export class PerformanceEvolver {
     for (const change of changes) {
       console.log(`[PerformanceEvolver] Applying change: ${change.target}: ${change.oldValue} -> ${change.newValue}`);
     }
+  }
+
+  // =============================================================================
+  // Token Saving Metrics (M2 P0 #1 - PerformanceEvolver Token 节省可观测 Dashboard)
+  // 对标 DuMate 75% Token 降耗工业级基准
+  // =============================================================================
+
+  /**
+   * Record baseline token consumption
+   * 记录基线 Token 消耗（仅首次生效，重复调用覆盖）
+   *
+   * @param tokens - 基线 Token 消耗值
+   */
+  recordBaseline(tokens: number): void {
+    this.baselineTokens = tokens;
+    this.syncTokenSavingMetrics();
+  }
+
+  /**
+   * Get token saving metrics
+   * 获取 Token 节省指标
+   *
+   * @returns TokenSavingMetrics（含 savingRatio = (baseline - currentAvg) / baseline）
+   */
+  getTokenSavingMetrics(): TokenSavingMetrics {
+    const perQuery = this.stats.tokenUsage.perQuery;
+    const sampleCount = perQuery.length;
+
+    // Calculate current average tokens
+    const currentTokensAvg =
+      sampleCount > 0
+        ? perQuery.reduce((a, b) => a + b, 0) / sampleCount
+        : 0;
+
+    // Calculate saving ratio (avoid division by zero)
+    const savingRatio =
+      this.baselineTokens !== null && this.baselineTokens > 0
+        ? (this.baselineTokens - currentTokensAvg) / this.baselineTokens
+        : 0;
+
+    // Calculate per-tool saving
+    const perToolSaving: Record<string, PerToolTokenSaving> = {};
+    if (this.baselineTokens !== null && this.baselineTokens > 0) {
+      for (const [tool, usages] of Object.entries(this.stats.tokenUsage.perTool)) {
+        const toolSampleCount = usages.length;
+        const toolCurrentAvg =
+          toolSampleCount > 0
+            ? usages.reduce((a, b) => a + b, 0) / toolSampleCount
+            : 0;
+        // Use baseline proportion (baseline * tool_usage / total_baseline) as tool baseline
+        const toolBaselineRatio = toolSampleCount > 0 && sampleCount > 0
+          ? toolSampleCount / sampleCount
+          : 0;
+        const toolBaseline = this.baselineTokens * toolBaselineRatio;
+        perToolSaving[tool] = {
+          baselineTokens: toolBaseline,
+          currentTokensAvg: toolCurrentAvg,
+          savingRatio: toolBaseline > 0 ? (toolBaseline - toolCurrentAvg) / toolBaseline : 0,
+          sampleCount: toolSampleCount,
+        };
+      }
+    }
+
+    return {
+      baselineTokens: this.baselineTokens ?? 0,
+      currentTokensAvg,
+      savingRatio,
+      sampleCount,
+      lastUpdatedAt: Date.now(),
+      perToolSaving: Object.keys(perToolSaving).length > 0 ? perToolSaving : undefined,
+    };
+  }
+
+  /**
+   * Get dashboard JSON
+   * 获取 Dashboard JSON（供 CLI / 前端消费）
+   *
+   * @returns HarnessDashboard 结构化 JSON
+   */
+  getDashboard(): HarnessDashboard {
+    const perQuery = this.stats.tokenUsage.perQuery;
+    const sampleCount = perQuery.length;
+
+    // Calculate averages
+    const tokenUsageAvg =
+      sampleCount > 0
+        ? perQuery.reduce((a, b) => a + b, 0) / sampleCount
+        : 0;
+    const latencyAvg =
+      sampleCount > 0
+        ? this.stats.latency.perQuery.reduce((a, b) => a + b, 0) / sampleCount
+        : 0;
+
+    // Generate suggestions based on metrics
+    const suggestions: string[] = [];
+    const tokenSavingMetrics = this.getTokenSavingMetrics();
+
+    if (tokenSavingMetrics.savingRatio > 0.75) {
+      suggestions.push('🎯 Token 节省超过 75%，已达到 DuMate 工业基准');
+    } else if (tokenSavingMetrics.savingRatio > 0.5) {
+      suggestions.push('📈 Token 节省超过 50%，持续优化中');
+    } else if (tokenSavingMetrics.savingRatio > 0) {
+      suggestions.push('💡 Token 节省为正，建议继续监控并优化');
+    } else if (this.baselineTokens !== null) {
+      suggestions.push('⚠️ Token 消耗高于基线，建议检查上下文压缩和工具调用策略');
+    } else {
+      suggestions.push('📌 建议调用 recordBaseline() 设定基线以启用节省追踪');
+    }
+
+    if (this.stats.cacheHitRate < 0.5) {
+      suggestions.push('🔧 缓存命中率偏低，建议优化缓存策略');
+    }
+
+    if (latencyAvg > this.config.targetLatencyMs * 2) {
+      suggestions.push('⚡ 延迟偏高，建议增加并行度或启用压缩');
+    }
+
+    return {
+      stats: {
+        tokenUsageAvg,
+        latencyAvg,
+        cacheHitRate: this.stats.cacheHitRate,
+        sampleCount,
+      },
+      tokenSaving: tokenSavingMetrics,
+      currentSettings: { ...this.currentSettings },
+      suggestions,
+      generatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Sync token saving metrics to stats
+   * 同步 token 节省指标到 stats（内部方法）
+   */
+  private syncTokenSavingMetrics(): void {
+    this.stats.tokenSaving = this.getTokenSavingMetrics();
   }
 }

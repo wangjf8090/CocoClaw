@@ -286,6 +286,64 @@ export interface PerformanceStats {
   cacheHitRate: number;
   contextCompressionRatio: number;
   parallelismUtilization: number;
+  tokenSaving?: TokenSavingMetrics;
+}
+
+/**
+ * Token Saving Metrics
+ * Token 节省指标（用于 PerformanceEvolver Dashboard，对标 DuMate 75% Token 降耗工业级基准）
+ */
+export interface TokenSavingMetrics {
+  /** 基线 Token 消耗（首次调用 recordBaseline 设定） */
+  baselineTokens: number;
+  /** 当前平均 Token 消耗 */
+  currentTokensAvg: number;
+  /** Token 节省比例 = (baseline - currentAvg) / baseline，避免 baseline=0 时除零 */
+  savingRatio: number;
+  /** 样本数量 */
+  sampleCount: number;
+  /** 最后更新时间 */
+  lastUpdatedAt: number;
+  /** 按工具拆分的 Token 节省（可选） */
+  perToolSaving?: Record<string, PerToolTokenSaving>;
+}
+
+/**
+ * Per Tool Token Saving
+ * 单工具 Token 节省明细
+ */
+export interface PerToolTokenSaving {
+  baselineTokens: number;
+  currentTokensAvg: number;
+  savingRatio: number;
+  sampleCount: number;
+}
+
+/**
+ * Harness Dashboard
+ * 编排 Dashboard（供 CLI / 前端消费）
+ */
+export interface HarnessDashboard {
+  /** 统计摘要 */
+  stats: {
+    tokenUsageAvg: number;
+    latencyAvg: number;
+    cacheHitRate: number;
+    sampleCount: number;
+  };
+  /** Token 节省指标 */
+  tokenSaving: TokenSavingMetrics;
+  /** 当前设置快照 */
+  currentSettings: {
+    contextWindowSize: number;
+    cacheSize: number;
+    maxParallelism: number;
+    compressionEnabled: boolean;
+  };
+  /** 关键优化建议 */
+  suggestions: string[];
+  /** Dashboard 生成时间 */
+  generatedAt: number;
 }
 
 /**
@@ -315,11 +373,11 @@ export interface HarnessExecutionOptions {
   context?: Record<string, unknown>;
 }
 
-/================================================================================
+/* ================================================================================
  * Test Harness Types (融合新增)
  * 测试与治理系统类型定义
  * OpenClaw Runtime = Agent OS, Harness = QA + Replay + Safety Lab
-================================================================================/
+ * ================================================================================ */
 
 /**
  * ClawEventType - Runtime 暴露的核心事件类型

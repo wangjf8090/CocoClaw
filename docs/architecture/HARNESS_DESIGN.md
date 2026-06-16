@@ -403,13 +403,14 @@ if (success) {
 |------|---------|---------|---------|------|
 | **上下文按需组装深度优化** | 上下文按需组装 | MemoryEvolver 加意图识别 + 敏感度判断；Orchestrator 上下文注入分阶段 | 对话轮次 -23%（对齐 DuMate） | 中 |
 | **渐进式工具发现 Token 节省量化** | 渐进式工具发现 | PerformanceEvolver 暴露每步工具调用的 Token 占比；Skill Cleaner 优化 MCP 包装 | Token 节省量化（DuMate 基准 98%） | 低 |
-| **PerformanceEvolver Token 节省可观测** | 整体 | 新增 `token_saving_ratio` 指标 + Dashboard | 对标 DuMate 75% 持续可观测 | 低 |
+| **PerformanceEvolver Token 节省可观测** | 整体 | ✅ 已落地（v3.7.0 M2）：新增 `recordBaseline()` / `getTokenSavingMetrics()` / `getDashboard()` | 对标 DuMate 75% 持续可观测 | 低 |
 
 ### 与 DuMate 75% 的差距分析
 
-- **可达成部分**（3/5 手段已落地 + 2 项 P0 待补）→ 理论上限 **接近 DuMate 75%**，但需要实际跑通后量化
+- **可达成部分**（3/5 手段已落地 + 2 项 P0 待补 + **1 项已落地 M2**）→ 理论上限 **接近 DuMate 75%**，但需要实际跑通后量化
 - **不可达成部分**（Token Factory 推理侧优化）→ 需要模型厂商支持，harness 层只能做接口适配
 - **PinchBench 93.3% 启示**：SelfClaw 后续应在自有评测集中跑出对照数据，作为 harness 优化效果的内部 baseline
+- **M2 P0 #1 已量化**：PerformanceEvolver Dashboard 现可实时输出 `token_saving_ratio`，P0 #2（上下文按需组装）和 P0 #3（渐进式工具发现）的优化效果可被量化对比
 
 ---
 
