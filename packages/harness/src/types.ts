@@ -126,6 +126,12 @@ export interface HarnessConfig {
   // Memory evolver settings
   memory: MemoryEvolverConfig;
 
+  // Skill evolver settings (P1 新增)
+  skill: SkillEvolverConfig;
+
+  // Trustworthy executor settings (P1 新增)
+  trustworthyExecution: TrustworthyExecutorConfig;
+
   // A/B testing settings
   abTesting: ABTestConfig;
 
@@ -166,6 +172,19 @@ export const DEFAULT_HARNESS_CONFIG: HarnessConfig = {
     autoTuneIndexParameters: true,
     redundancyThreshold: 0.9,
     importanceBoostThreshold: 0.8,
+  },
+
+  skill: {
+    caseWindow: 100,
+    standardThreshold: 5,
+    chainDepth: 3,
+  },
+
+  trustworthyExecution: {
+    enableEvidenceChain: true,
+    enableRuleValidation: true,
+    enableRiskFlagging: true,
+    maxRecursionDepth: 10,
   },
 
   abTesting: {
@@ -664,12 +683,13 @@ export const DEFAULT_TEST_HARNESS_CONFIG: TestHarnessConfig = {
 };
 
 /**
- * EvolutionCircuitType 扩展 - 支持 Test 触发
+ * EvolutionCircuitType 扩展 - 支持 Test 触发 + Skill 进化
  */
 export enum EvolutionCircuitType {
   PERMISSION = 'permission',
   PERFORMANCE = 'performance',
   MEMORY = 'memory',
+  SKILL = 'skill',
   TEST_TRIGGERED = 'test_triggered',
 }
 
@@ -696,6 +716,8 @@ export type HarnessEventType =
   | 'permission_update'
   | 'performance_tuning'
   | 'memory_optimization'
+  | 'skill_evolution'
+  | 'trustworthy_execution'
   | 'ab_test_start'
   | 'ab_test_complete'
   | 'rollback_triggered'
@@ -705,3 +727,341 @@ export type HarnessEventType =
   | 'regression_detected'
   | 'evolution_triggered'
   | 'safety_gate_triggered';
+
+// ================================================================================
+// Budget & Usage Management Types (M3 新增)
+// ================================================================================
+
+export enum BudgetStatus {
+  OK = 'ok',
+  WARNING = 'warning',
+  EXCEEDED = 'exceeded',
+  DEPLETED = 'depleted',
+}
+
+export enum UsageStatus {
+  OK = 'ok',
+  RATE_LIMITED = 'rate_limited',
+  THROTTLED = 'throttled',
+  UNAVAILABLE = 'unavailable',
+}
+
+export interface BudgetConfig {
+  dailyTokenLimit: number;
+  weeklyTokenLimit?: number;
+  monthlyTokenLimit?: number;
+  perRequestLimit: number;
+  warningThreshold?: number;
+  criticalThreshold?: number;
+}
+
+export interface TokenUsage {
+  consumed: number;
+  requestCount: number;
+  timestamp: number;
+  dailyUsage?: number;
+  weeklyUsage?: number;
+  monthlyUsage?: number;
+}
+
+export interface BudgetCheckResult {
+  status: BudgetStatus;
+  consumedRatio: number;
+  remaining: number;
+  shouldDegrade: boolean;
+  recommendedModel?: string;
+  message: string;
+}
+
+export interface UsageCheckResult {
+  status: UsageStatus;
+  retryAfterMs?: number;
+  shouldSwitchModel: boolean;
+  fallbackModel?: string;
+}
+
+export interface ModelCapability {
+  name: string;
+  maxTokens: number;
+  costPer1KTokens: number;
+  priority: number;
+  supportsStreaming: boolean;
+  provider: 'openai' | 'anthropic' | 'zhipu' | 'dashscope' | 'deepseek';
+}
+
+export const DEFAULT_BUDGET_CONFIG: BudgetConfig = {
+  dailyTokenLimit: 1000000,
+  weeklyTokenLimit: 5000000,
+  monthlyTokenLimit: 20000000,
+  perRequestLimit: 32000,
+  warningThreshold: 0.8,
+  criticalThreshold: 0.95,
+};
+
+/* ================================================================================
+ * Skill Evolver Types (P1 新增)
+ * 技能进化器类型定义 — 四层递进式反馈机制
+ * Inspired by 科大讯飞招采AI智能体平台2.0
+ * ================================================================================ */
+
+/**
+ * Skill Evolver Configuration
+ * 技能进化器配置
+ */
+export interface SkillEvolverConfig {
+  /** 案例窗口（默认 100 次执行） */
+  caseWindow: number;
+  /** 标准演进阈值（默认 5 次同类错误触发更新） */
+  standardThreshold: number;
+  /** 思维链分析深度（默认 3 层） */
+  chainDepth: number;
+}
+
+/**
+ * Default Skill Evolver Configuration
+ * 默认技能进化器配置
+ */
+export const DEFAULT_SKILL_EVOLVER_CONFIG: SkillEvolverConfig = {
+  caseWindow: 100,
+  standardThreshold: 5,
+  chainDepth: 3,
+};
+
+/**
+ * Skill Case Review
+ * 技能执行案例复核记录
+ */
+export interface SkillCaseReview {
+  /** 技能 ID */
+  skillId: string;
+  /** 执行时间 */
+  timestamp: Date;
+  /** 是否成功 */
+  success: boolean;
+  /** 错误类型（失败时填写） */
+  errorType?: 'format' | 'dependency' | 'semantic' | 'runtime';
+  /** 执行上下文快照 */
+  context: ExecutionContext;
+}
+
+/**
+ * Skill Context — SkillEvolver.evolve() 的输入
+ * 技能进化上下文
+ */
+export interface SkillContext {
+  /** 技能 ID */
+  skillId: string;
+  /** 版本号 */
+  version?: string;
+  /** 当前技能元数据 */
+  metadata?: Record<string, unknown>;
+  /** 最近的执行结果 */
+  recentExecutions?: SkillCaseReview[];
+}
+
+/**
+ * Standard Evolution Entry
+ * 标准演进条目 — Layer 2 产出
+ */
+export interface StandardEvolutionEntry {
+  /** 条目 ID */
+  id: string;
+  /** 触发的错误类型 */
+  errorType: 'format' | 'dependency' | 'semantic' | 'runtime' | 'unknown';
+  /** 触发次数 */
+  triggerCount: number;
+  /** 触发阈值 */
+  threshold: number;
+  /** 生成的新规则描述 */
+  newRule: string;
+  /** 创建时间 */
+  createdAt: number;
+}
+
+/**
+ * Chain of Thought Entry
+ * 评审思维链条目 — Layer 3 产出
+ */
+export interface ChainOfThoughtEntry {
+  /** 条目 ID */
+  id: string;
+  /** 分析深度（1 ~ chainDepth） */
+  depth: number;
+  /** 错误类型链 */
+  errorChain: string;
+  /** 关联的案例 ID */
+  caseIds: string[];
+  /** 分析描述 */
+  analysis: string;
+  /** 创建时间 */
+  createdAt: number;
+}
+
+/**
+ * Wisdom Prediction
+ * 智慧预测条目 — Layer 4 产出
+ */
+export interface WisdomPrediction {
+  /** 预测 ID */
+  id: string;
+  /** 预测类型 */
+  type: 'warning' | 'improvement' | 'prediction';
+  /** 预测描述 */
+  description: string;
+  /** 置信度 0-1 */
+  confidence: number;
+  /** 建议的行动 */
+  suggestedActions: string[];
+  /** 创建时间 */
+  createdAt: number;
+}
+
+/* ================================================================================
+ * Trustworthy Executor Types (P1 新增)
+ * 可信执行引擎类型定义 — 三步法
+ * Inspired by 科大讯飞招采AI智能体平台2.0
+ * ================================================================================ */
+
+/**
+ * Risk Level
+ * 风险等级
+ */
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+/**
+ * Trustworthy Executor Configuration
+ * 可信执行器配置
+ */
+export interface TrustworthyExecutorConfig {
+  /** 生成可追溯证据链 */
+  enableEvidenceChain: boolean;
+  /** 启用规则引擎强校验 */
+  enableRuleValidation: boolean;
+  /** 启用风险标记 */
+  enableRiskFlagging: boolean;
+  /** 最大递归深度 */
+  maxRecursionDepth: number;
+}
+
+/**
+ * Default Trustworthy Executor Configuration
+ * 默认可信执行器配置
+ */
+export const DEFAULT_TRUSTWORTHY_EXECUTOR_CONFIG: TrustworthyExecutorConfig = {
+  enableEvidenceChain: true,
+  enableRuleValidation: true,
+  enableRiskFlagging: true,
+  maxRecursionDepth: 10,
+};
+
+/**
+ * Execution Task — TrustworthyExecutor.execute() 的输入
+ * 执行任务
+ */
+export interface ExecutionTask {
+  /** 任务 ID */
+  id: string;
+  /** 任务输入 */
+  input: string;
+  /** 任务上下文 */
+  context?: Record<string, unknown>;
+  /** 预期输出格式（可选） */
+  expectedFormat?: string;
+}
+
+/**
+ * Evidence — 可追溯证据
+ * 证据条目
+ */
+export interface Evidence {
+  /** 证据类型 */
+  type: 'retrieval' | 'calculation' | 'reference' | 'logic';
+  /** 证据来源 */
+  source: string;
+  /** 证据内容 */
+  content: string;
+  /** 证据置信度 0-1 */
+  confidence: number;
+}
+
+/**
+ * Execution Step — 单步执行记录
+ * 执行步骤
+ */
+export interface ExecutionStep {
+  /** 步骤 ID */
+  stepId: string;
+  /** 步骤类型 */
+  type: 'understand' | 'find_evidence' | 'make_judgment';
+  /** 步骤输入 */
+  input: string;
+  /** 步骤输出 */
+  output: string;
+  /** 支撑证据 */
+  evidence: Evidence[];
+  /** 应用的规则（可选） */
+  ruleApplied?: string;
+  /** 风险等级（可选） */
+  riskLevel?: RiskLevel;
+}
+
+/**
+ * Execution Result — TrustworthyExecutor.execute() 的输出
+ * 执行结果
+ */
+export interface ExecutionResult {
+  /** 任务 ID */
+  taskId: string;
+  /** 执行状态 */
+  status: 'completed' | 'failed';
+  /** 结论 */
+  conclusion: string | null;
+  /** 执行步骤 */
+  steps: ExecutionStep[];
+  /** 完整证据链 */
+  evidenceChain: Evidence[];
+  /** 风险等级 */
+  riskLevel: RiskLevel;
+  /** 综合置信度 */
+  confidence: number;
+  /** 是否可追溯 */
+  traceable: boolean;
+  /** 开始时间 */
+  startedAt: number;
+  /** 完成时间 */
+  completedAt: number;
+  /** 错误信息（失败时） */
+  error?: string;
+}
+
+/**
+ * Rule Definition — 规则定义
+ * 可信执行规则
+ */
+export interface RuleDefinition {
+  /** 规则 ID */
+  id: string;
+  /** 规则描述 */
+  description: string;
+  /** 匹配模式（正则表达式字符串，可选） */
+  pattern?: string;
+  /** 规则置信度 0-1 */
+  confidence: number;
+  /** 规则优先级（越大越优先） */
+  priority?: number;
+}
+
+/**
+ * Execution Context — 可信执行上下文
+ * 与 SkillCaseReview.context 共享
+ */
+export interface ExecutionContext {
+  /** 执行环境 */
+  environment?: string;
+  /** 调用者 ID */
+  callerId?: string;
+  /** 输入摘要 */
+  inputSummary?: string;
+  /** 额外数据 */
+  extra?: Record<string, unknown>;
+}

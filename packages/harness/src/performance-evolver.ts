@@ -15,6 +15,10 @@ import {
   TokenSavingMetrics,
   PerToolTokenSaving,
   HarnessDashboard,
+  BudgetConfig,
+  BudgetCheckResult,
+  BudgetStatus,
+  DEFAULT_BUDGET_CONFIG,
 } from './types.js';
 
 export class PerformanceEvolver {
@@ -444,5 +448,120 @@ export class PerformanceEvolver {
    */
   private syncTokenSavingMetrics(): void {
     this.stats.tokenSaving = this.getTokenSavingMetrics();
+  }
+
+  // =============================================================================
+  // Budget & Usage Limited Management (M3 新增)
+  // =============================================================================
+
+  private totalTokenConsumed: number = 0;
+  private dailyTokenConsumed: number = 0;
+  private dailyResetTimestamp: number = Date.now();
+
+  /**
+   * Record token consumption for budget tracking
+   */
+  recordTokenConsumption(tokens: number): void {
+    this.totalTokenConsumed += tokens;
+    this.dailyTokenConsumed += tokens;
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (now - this.dailyResetTimestamp > dayMs) {
+      this.dailyTokenConsumed = tokens;
+      this.dailyResetTimestamp = now;
+    }
+  }
+
+  /**
+   * Check if budget is exceeded
+   * 返回 BudgetCheckResult，决定是否触发状态机转换
+   */
+  checkBudgetExceeded(
+    usage: { consumed: number },
+    budget: BudgetConfig = DEFAULT_BUDGET_CONFIG
+  ): BudgetCheckResult {
+    const consumed = usage.consumed || this.totalTokenConsumed;
+    const limit = budget.dailyTokenLimit;
+    const ratio = limit > 0 ? consumed / limit : 1;
+
+    const warningThreshold = budget.warningThreshold ?? 0.8;
+    const criticalThreshold = budget.criticalThreshold ?? 0.95;
+
+    let status: BudgetStatus;
+    let message: string;
+    let shouldDegrade = false;
+    let recommendedModel: string | undefined;
+
+    if (ratio >= 1) {
+      status = BudgetStatus.EXCEEDED;
+      message = `Budget exceeded: ${consumed}/${limit} tokens (${(ratio * 100).toFixed(1)}%)`;
+      shouldDegrade = true;
+      recommendedModel = 'GLM-5.2';
+    } else if (ratio >= criticalThreshold) {
+      status = BudgetStatus.DEPLETED;
+      message = `Budget depleted: ${consumed}/${limit} tokens (${(ratio * 100).toFixed(1)}%)`;
+      shouldDegrade = true;
+      recommendedModel = 'Qwen-3-Max';
+    } else if (ratio >= warningThreshold) {
+      status = BudgetStatus.WARNING;
+      message = `Budget warning: ${consumed}/${limit} tokens (${(ratio * 100).toFixed(1)}%)`;
+    } else {
+      status = BudgetStatus.OK;
+      message = `Budget OK: ${consumed}/${limit} tokens (${(ratio * 100).toFixed(1)}%)`;
+    }
+
+    return {
+      status,
+      consumedRatio: ratio,
+      remaining: Math.max(0, limit - consumed),
+      shouldDegrade,
+      recommendedModel,
+      message,
+    };
+  }
+
+  /**
+   * Check API rate limit status
+   */
+  checkUsageLimited(
+    errorCode?: string
+  ): { isLimited: boolean; fallbackModel?: string } {
+    const rateLimitCodes = ['429', 'rate_limit_exceeded', 'RATE_LIMITED'];
+    const isLimited = errorCode ? rateLimitCodes.includes(errorCode) : false;
+
+    return {
+      isLimited,
+      fallbackModel: isLimited ? 'GPT-4o' : undefined,
+    };
+  }
+
+  /**
+   * Get fallback model chain
+   */
+  getFallbackChain(): string[] {
+    return [
+      'Claude-3.7-Sonnet',
+      'GPT-4o',
+      'GLM-5.2',
+      'Qwen-3-Max',
+      'DeepSeek-V3',
+    ];
+  }
+
+  /**
+   * Get current total consumption
+   */
+  getTotalConsumption(): number {
+    return this.totalTokenConsumed;
+  }
+
+  /**
+   * Reset consumption counters
+   */
+  resetConsumption(): void {
+    this.totalTokenConsumed = 0;
+    this.dailyTokenConsumed = 0;
+    this.dailyResetTimestamp = Date.now();
   }
 }

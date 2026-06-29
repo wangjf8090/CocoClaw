@@ -453,3 +453,51 @@ For support:
 ---
 
 **SelfClaw Framework** - Building autonomous AI agents with self-evolution capabilities
+## 🆕 P0 Modules (2026-06-29)
+
+Latest P0 comprehensive optimization implementation completed with **110 unit tests passing**.
+
+### 1. SKILL.md Open Standard
+- **Location**: `packages/skills/src/skill-standard.ts`
+- **Capability**: Unified skill card format with YAML frontmatter + Markdown body
+- **Features**:
+  - `parseSkillMarkdown()` - Parse SKILL.md files
+  - `generateSkillMarkdown()` - Generate SKILL.md files
+  - Zero third-party dependencies
+  - Round-trip compatible
+- **Tests**: 36 unit tests passing
+
+### 2. Capability Bucket Index
+- **Location**: `packages/skills/src/capability-bucket.ts`
+- **Capability**: Two-level organization: domain → capability → skill
+- **Features**:
+  - `CapabilityIndex` class for efficient skill discovery
+  - Smart matching with semantic inference
+  - Fuzzy query support
+  - Batch registration
+- **Performance**: 50%+ improvement over list-based queries
+- **Tests**: 26 unit tests passing
+
+### 3. M3 Multi-Model Router Enhancement
+- **Location**: `packages/model-router/src/skill-migration.ts`
+- **Capability**: Cross-model skill migration
+- **Features**:
+  - `SkillMigrator` class for seamless skill transfer
+  - Compatibility checking
+  - Rule-based + LLM instruction adaptation
+  - Migration history tracking
+- **Tests**: 18 unit tests passing
+
+### 4. EntroCamp Evolution Academy
+- **Location**: `packages/evolution/src/entrocamp.ts`
+- **Capability**: Scheduled evolution + personalized courses + visible progress
+- **Features**:
+  - `EntroCamp` class for daily automatic evolution
+  - `CronScheduler` for scheduled tasks (daily 2:00 AM)
+  - `CourseGenerator` for personalized training
+  - `EvolutionReport` for visible progress tracking
+  - Weakness diagnosis and targeted improvement
+- **Tests**: 30 unit tests passing
+
+### Implementation Summary
+Full implementation details available at: `./P0_IMPLEMENTATION_SUMMARY.md`

@@ -1,0 +1,22 @@
+{
+  "name": "@selfclaw/model-router",
+  "version": "0.1.0",
+  "description": "Multi-model router with fallback chain and health checks",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules tests/router.test.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "selfclaw",
+    "ai",
+    "router",
+    "fallback",
+    "multi-model"
+  ],
+  "author": "SelfClaw",
+  "license": "MIT"
+}

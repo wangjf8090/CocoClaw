@@ -18,6 +18,7 @@ import { ToolRegistry } from '@selfclaw/tools';
 import { PermissionEvolver } from './permission-evolver.js';
 import { PerformanceEvolver } from './performance-evolver.js';
 import { MemoryEvolver } from './memory-evolver.js';
+import { SkillEvolver } from './skill-evolver.js';
 
 import {
   HarnessConfig,
@@ -32,6 +33,7 @@ import {
   RollbackPoint,
   ActiveABTest,
   HarnessExecutionOptions,
+  SkillContext,
 } from './types.js';
 
 export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEventEmitter) {
@@ -49,6 +51,7 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
   private permissionEvolver: PermissionEvolver;
   private performanceEvolver: PerformanceEvolver;
   private memoryEvolver: MemoryEvolver;
+  private skillEvolver: SkillEvolver;
 
   // Evolution metadata storage
   private rollbackHistory: RollbackPoint[] = [];
@@ -76,6 +79,7 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
     );
     this.performanceEvolver = new PerformanceEvolver(this.config.performance);
     this.memoryEvolver = new MemoryEvolver(this.memoryManager, this.config.memory);
+    this.skillEvolver = new SkillEvolver(this.config.skill);
   }
 
   /**
@@ -176,6 +180,7 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
     results.push(await this.evolvePermission());
     results.push(await this.evolvePerformance());
     results.push(await this.evolveMemory());
+    results.push(await this.evolveSkill());
 
     this.emitEvent('evolution_cycle', {
       status: EvolutionStatus.COMPLETED,
@@ -292,6 +297,32 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
   }
 
   /**
+   * Run skill evolution
+   * 运行技能进化（四层递进式反馈）
+   */
+  private async evolveSkill(): Promise<EvolutionResult> {
+    const startedAt = Date.now();
+    const result = await this.skillEvolver.evolve({
+      skillId: 'harness-managed',
+      version: this.evolutionVersion,
+    });
+
+    if (this.config.autoApplyChanges && result.changes.length > 0) {
+      this.createRollbackPoint(EvolutionCircuitType.SKILL, result.changes);
+      this.skillEvolver.applyChanges(result.changes);
+
+      for (const change of result.changes) {
+        this.emitEvent('skill_evolution', {
+          circuit: EvolutionCircuitType.SKILL,
+          change,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Create a rollback point
    * 创建回滚点
    */
@@ -396,6 +427,7 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
     permissionPatterns: number;
     performanceSettings: ReturnType<PerformanceEvolver['getSettings']>;
     indexParams: ReturnType<MemoryEvolver['getIndexParams']>;
+    skillStats: ReturnType<SkillEvolver['getStats']>;
   } {
     return {
       version: this.evolutionVersion,
@@ -404,6 +436,7 @@ export class SelfEvolutionHarness extends (EventEmitter as new () => HarnessEven
       permissionPatterns: this.permissionEvolver.getPatterns().length,
       performanceSettings: this.performanceEvolver.getSettings(),
       indexParams: this.memoryEvolver.getIndexParams(),
+      skillStats: this.skillEvolver.getStats(),
     };
   }
 

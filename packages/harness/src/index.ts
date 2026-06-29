@@ -6,6 +6,8 @@
  *
  * Features:
  * - Three evolution circuits: Permission, Performance, Memory
+ * - Skill Evolver: Four-layer progressive feedback (Case Review → Standard → Chain → Wisdom)
+ * - Trustworthy Executor: Three-step trustworthy execution (Understand → Evidence → Judgment)
  * - Test Harness: Case Runner, Tool Adapter, Evaluator
  * - Event Bus: Unified event stream
  * - A/B testing framework for safe evolution
@@ -21,6 +23,10 @@ export * from './types.js';
 export { PermissionEvolver } from './permission-evolver.js';
 export { PerformanceEvolver } from './performance-evolver.js';
 export { MemoryEvolver } from './memory-evolver.js';
+export { SkillEvolver } from './skill-evolver.js';
+
+// Trustworthy Execution (P1 新增)
+export { TrustworthyExecutor } from './trustworthy-executor.js';
 
 // Event Bus (新增)
 export { EventBus, getEventBus, resetEventBus } from './event-bus.js';
