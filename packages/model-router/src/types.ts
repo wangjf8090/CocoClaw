@@ -9,6 +9,7 @@ export enum ModelProvider {
   ZHIPU = 'zhipu',
   DASHSCOPE = 'dashscope',
   DEEPSEEK = 'deepseek',
+  MOONSHOT = 'moonshot',
 }
 
 export enum HealthStatus {
