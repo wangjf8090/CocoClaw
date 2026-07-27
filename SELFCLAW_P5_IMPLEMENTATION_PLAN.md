@@ -180,8 +180,8 @@
 | P1-1: Context Engineering | ✅ | 2026-07-24 | 2026-07-24 | `skills/src/input-quality-gate.ts` + 测试 |
 | P1-2: 技能系统增强 | ✅ | 2026-07-24 | 2026-07-24 | `skills/src/skill-registry.ts` + 测试 |
 | P1-3: 国产模型Adapter | ✅ | 2026-07-24 | 2026-07-24 | `adapters/kimi-k3.ts` + `adapters/glm.ts`增强 + 测试 |
-| P2-1: OpenTelemetry | ⏳ | - | - | |
-| P2-2: 工具审批 | ⏳ | - | - | |
+| P2-1: OpenTelemetry | ✅ | 2026-07-27 | 2026-07-27 | `observability/src/telemetry.ts` + 测试（79 tests） |
+| P2-2: 工具审批 | ✅ | 2026-07-27 | 2026-07-27 | `harness/src/tool-approval.ts` + 测试（85 tests） |
 
 ---
 

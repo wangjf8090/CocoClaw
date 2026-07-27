@@ -28,6 +28,23 @@ export { SkillEvolver } from './skill-evolver.js';
 // Trustworthy Execution (P1 新增)
 export { TrustworthyExecutor } from './trustworthy-executor.js';
 
+// Tool Approval (P1 新增)
+export {
+  ToolApprovalManager,
+  createToolApprovalManager,
+  PREDEFINED_RISK_RULES,
+  DEFAULT_TOOL_APPROVAL_CONFIG,
+} from './tool-approval.js';
+export type {
+  ToolRiskLevel,
+  ApprovalStatus,
+  ToolRiskRule,
+  ToolApprovalConfig,
+  ApprovalSession,
+  ApprovalRecord,
+  ApprovalCheckResult,
+} from './tool-approval.js';
+
 // Event Bus (新增)
 export { EventBus, getEventBus, resetEventBus } from './event-bus.js';
 

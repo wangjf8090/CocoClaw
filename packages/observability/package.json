@@ -1,0 +1,39 @@
+{
+  "name": "@selfclaw/observability",
+  "version": "0.1.0",
+  "description": "OpenTelemetry observability module for SelfClaw Agent runtime",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.57.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "selfclaw",
+    "observability",
+    "opentelemetry",
+    "telemetry",
+    "tracing",
+    "metrics"
+  ],
+  "author": "SelfClaw Team",
+  "license": "MIT"
+}
